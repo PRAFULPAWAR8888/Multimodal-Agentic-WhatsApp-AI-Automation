@@ -78,3 +78,19 @@ async def get_current_workspace_member(
         raise AuthorizationError("Not a member of this workspace")
         
     return current_user, member
+
+async def get_default_workspace_member(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> WorkspaceMember:
+    """Dependency that returns the user's default/first workspace member record."""
+    from sqlalchemy import select
+    
+    stmt = select(WorkspaceMember).where(WorkspaceMember.user_id == current_user.id)
+    result = await db.execute(stmt)
+    member = result.scalars().first()
+    
+    if not member:
+        raise AuthorizationError("User has no workspace")
+        
+    return member

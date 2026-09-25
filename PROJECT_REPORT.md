@@ -37,19 +37,20 @@ The following features and system components have been successfully built and ar
 9. **HubSpot CRM Integration:**
    - Alongside Frappe, we added support for HubSpot CRM so we can manage and sync leads easily.
 
+10. **Knowledge Source Upload API (Phase 4):**
+   - The FastAPI endpoints (`/knowledge/upload`, `/knowledge/url`) have been fully built, allowing business owners to upload their PDFs or provide website URLs. These endpoints successfully store files and trigger the background workers to process them.
+   - *Recent Update*: This API was successfully refactored to follow SOLID principles (business logic moved to `KnowledgeService`), DRY principles (shared workspace dependencies), and Defensive Programming (sanitized file uploads to prevent path traversal vulnerabilities).
+
+11. **Alternative AI Models - OpenAI with Ollama Fallback (Phase 9):**
+   - The platform is now configured with an intelligent fallback system. It will try to use the **OpenAI API** as the primary option.
+   - If OpenAI fails (due to rate limits, downtime, etc.), it will automatically and seamlessly fall back to local **Ollama** models using its OpenAI-compatible endpoint.
+
 ---
 
 ## ⏳ What is Remaining (To Do)
 
 The following features are either missing or incomplete and need to be worked on next:
 
-1. **Knowledge Source Upload API (Phase 4):**
-   - **What's missing:** While the background system can process documents (Phase 3), there is no API endpoint (e.g., `/knowledge/upload`) for the frontend dashboard to actually upload new documents into the system.
-   - **Action:** Build the FastAPI endpoints to allow business owners to upload their PDFs or provide website URLs.
-
-2. **Alternative AI Models - Ollama (Phase 9):**
-   - **What's missing:** The code has a placeholder for `OllamaLLMProvider`, but it currently throws a "Not Implemented" error. 
-   - **Action:** Write the logic to allow the platform to use free, local AI models via Ollama instead of relying solely on OpenAI.
 
 3. **Alternative AI Models - HuggingFace (Phase 10):**
    - **What's missing:** There is no code yet to support HuggingFace models.
@@ -60,4 +61,8 @@ The following features are either missing or incomplete and need to be worked on
    - **Action:** Add rate-limiting (to prevent abuse), ensure all errors are caught gracefully, and add detailed monitoring (observability) so you can track issues in production.
 
 ## Summary for Your Manager
-The core conversational AI, WhatsApp media processing, database, and background workers are **done and working**. The main priority right now is to build the **Knowledge Upload API** so users can actually upload their business documents from the frontend. After that, adding support for local AI models (Ollama) and final security hardening will make the platform 100% production-ready!
+The core conversational AI, WhatsApp media processing, database, background workers, and **Knowledge Upload API** are all **done and working**. We also have a robust **LLM fallback mechanism** in place that prioritizes OpenAI, but seamlessly falls back to local Ollama models in case of failure. 
+
+Crucially, we recently conducted a structural refactor to apply strict **SOLID, DRY, and Defensive Programming principles** to the API layer, removing logic from endpoints and moving it to dedicated Service layers, while also patching file upload security vulnerabilities.
+
+The main remaining tasks are setting up HuggingFace (if needed), writing tests (TDD) for the newly refactored features, and applying final production security hardening (rate-limiting, robust monitoring) to make the platform 100% production-ready!

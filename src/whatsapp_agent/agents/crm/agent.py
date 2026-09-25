@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 from whatsapp_agent.agents.llm_provider import get_llm_provider
 from whatsapp_agent.agents.state import AgentState
@@ -20,7 +21,7 @@ logger = get_logger(__name__)
 
 # ── Tool Definitions ──────────────────────────────────────────────────────────
 
-TOOLS = [
+TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -146,7 +147,7 @@ async def crm_agent_node(state: AgentState) -> AgentState:
                 try:
                     args = json.loads(tc.get("function", {}).get("arguments", "{}"))
                 except json.JSONDecodeError:
-                    args = {}
+                    args: dict[str, Any] = {}
                     
                 logger.info("executing_crm_tool", tool=fn_name, args=args)
                 

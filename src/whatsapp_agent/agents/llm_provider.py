@@ -313,16 +313,36 @@ class OpenAILLMProvider(BaseLLMProvider):
         return llm_resp, tool_calls_out
 
 
-class OllamaLLMProvider(BaseLLMProvider):
+class OllamaLLMProvider(OpenAILLMProvider):
     """
-    Ollama LLM provider for local, open-source model reasoning.
+    Ollama LLM provider using Ollama's OpenAI-compatible endpoint.
     """
 
     def __init__(self) -> None:
         self._settings = get_settings()
         self._model = self._settings.ollama_model
-        # Placeholder for actual implementation in a future phase
-    
+        
+        base_url = self._settings.ollama_base_url
+        if not base_url.endswith("/v1"):
+            base_url = base_url.rstrip("/") + "/v1"
+            
+        self._client = AsyncOpenAI(
+            base_url=base_url,
+            api_key="ollama", # required but ignored by Ollama
+            timeout=self._settings.openai_request_timeout,
+            max_retries=0,
+        )
+        self._max_tokens = self._settings.openai_max_tokens
+        self._temperature = self._settings.openai_temperature
+
+class FallbackLLMProvider(BaseLLMProvider):
+    """
+    Tries the primary provider first, falls back to the secondary if it fails.
+    """
+    def __init__(self, primary: BaseLLMProvider, fallback: BaseLLMProvider) -> None:
+        self.primary = primary
+        self.fallback = fallback
+
     async def complete(
         self,
         system_prompt: str,
@@ -332,7 +352,11 @@ class OllamaLLMProvider(BaseLLMProvider):
         max_tokens: int | None = None,
         response_format: dict[str, str] | None = None,
     ) -> LLMResponse:
-        raise NotImplementedError("OllamaLLMProvider is planned for a future phase.")
+        try:
+            return await self.primary.complete(system_prompt, user_message, conversation_history, temperature, max_tokens, response_format)
+        except Exception as e:
+            logger.warning("primary_llm_failed_using_fallback", error=str(e))
+            return await self.fallback.complete(system_prompt, user_message, conversation_history, temperature, max_tokens, response_format)
 
     async def complete_json(
         self,
@@ -340,7 +364,11 @@ class OllamaLLMProvider(BaseLLMProvider):
         user_message: str,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> tuple[dict[str, Any], LLMUsage]:
-        raise NotImplementedError("OllamaLLMProvider is planned for a future phase.")
+        try:
+            return await self.primary.complete_json(system_prompt, user_message, conversation_history)
+        except Exception as e:
+            logger.warning("primary_llm_failed_using_fallback", error=str(e))
+            return await self.fallback.complete_json(system_prompt, user_message, conversation_history)
 
     async def complete_with_tools(
         self,
@@ -349,7 +377,11 @@ class OllamaLLMProvider(BaseLLMProvider):
         tools: list[dict[str, Any]],
         conversation_history: list[dict[str, str]] | None = None,
     ) -> tuple[LLMResponse, list[dict[str, Any]]]:
-        raise NotImplementedError("OllamaLLMProvider is planned for a future phase.")
+        try:
+            return await self.primary.complete_with_tools(system_prompt, user_message, tools, conversation_history)
+        except Exception as e:
+            logger.warning("primary_llm_failed_using_fallback", error=str(e))
+            return await self.fallback.complete_with_tools(system_prompt, user_message, tools, conversation_history)
 
 
 class MockLLMProvider(BaseLLMProvider):
@@ -506,15 +538,9 @@ def get_llm_provider() -> BaseLLMProvider:
     """
     global _llm_provider
     if _llm_provider is None:
-        settings = get_settings()
-        if settings.llm_provider == LLMProvider.OPENAI:
-            inner = OpenAILLMProvider()
-        elif settings.llm_provider == LLMProvider.OLLAMA:
-            inner = OllamaLLMProvider()
-        else:
-            # Default fallback for testing or unidentified
-            inner = MockLLMProvider()
-            
+        primary = OpenAILLMProvider()
+        fallback = OllamaLLMProvider()
+        inner = FallbackLLMProvider(primary, fallback)
         _llm_provider = LLMGateway(inner)
         
     return _llm_provider

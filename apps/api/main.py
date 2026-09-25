@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator, Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("database_connection_pool_initialized")
     
     # Initialize ARQ Redis pool for enqueuing jobs
-    app.state.redis_pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    app.state.redis_pool = await create_pool(RedisSettings.from_dsn(str(settings.redis_url)))
     logger.info("arq_redis_pool_initialized")
 
     yield
@@ -103,7 +103,9 @@ def create_application() -> FastAPI:
 
     # ── Request Context Middleware ─────────────────────────────────────────────
     @app.middleware("http")
-    async def request_context_middleware(request: Request, call_next: Any) -> Response:
+    async def request_context_middleware(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Attach a unique request_id to every request and bind it to the log context.
         Measures and logs request duration.
@@ -143,11 +145,13 @@ def create_application() -> FastAPI:
     from apps.api.routers.webhooks import router as webhooks_router
     from apps.api.routers.conversations import router as conversations_router
     from apps.api.routers.workspaces import router as workspaces_router
+    from apps.api.routers.knowledge import router as knowledge_router
 
     app.include_router(auth_router, prefix=settings.api_v1_prefix, tags=["Auth"])
     app.include_router(webhooks_router, prefix=settings.api_v1_prefix, tags=["Webhooks"])
     app.include_router(conversations_router, prefix=settings.api_v1_prefix, tags=["Conversations"])
     app.include_router(workspaces_router, prefix=settings.api_v1_prefix, tags=["Workspaces"])
+    app.include_router(knowledge_router, prefix=settings.api_v1_prefix, tags=["Knowledge"])
 
     logger.info("routers_registered")
     return app
