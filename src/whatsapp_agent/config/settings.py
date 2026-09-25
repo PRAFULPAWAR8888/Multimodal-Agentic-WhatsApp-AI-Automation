@@ -75,6 +75,7 @@ class CRMProvider(str, Enum):
     """Supported CRM provider backends."""
 
     HUBSPOT = "hubspot"
+    FRAPPE = "frappe"
     MOCK = "mock"
 
 
@@ -228,6 +229,10 @@ class AppSettings(BaseSettings):
     hubspot_redirect_uri: str = Field(
         default="http://localhost:8000/api/v1/crm/hubspot/callback"
     )
+    
+    frappe_url: str = Field(default="")
+    frappe_api_key: str = Field(default="")
+    frappe_api_secret: str = Field(default="")
 
     # ── Calendar ────────────────────────────────────────────────────────────────
     calendar_provider: CalendarProvider = Field(default=CalendarProvider.MOCK)

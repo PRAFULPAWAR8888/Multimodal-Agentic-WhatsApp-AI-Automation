@@ -95,3 +95,24 @@ class MockCRMProvider(CRMProvider):
         }
         
         return f"LEAD-{phone}"
+
+    async def get_employee_details(self, employee_id: str) -> dict[str, Any] | None:
+        logger.info("mock_get_employee_details", employee_id=employee_id)
+        if employee_id == "EMP001":
+            return {"employee_id": "EMP001", "name": "John Doe", "department": "Engineering"}
+        return None
+
+    async def get_invoice_details(self, invoice_id: str, phone: str) -> dict[str, Any] | None:
+        logger.info("mock_get_invoice_details", invoice_id=invoice_id, phone=phone)
+        if invoice_id == "INV001":
+            return {"invoice_id": "INV001", "status": "Paid", "amount": 1500}
+        return None
+
+    async def send_whatsapp_otp(self, phone: str) -> str | bool:
+        logger.info("mock_send_whatsapp_otp", phone=phone)
+        # Store mock OTP logic somewhere if needed
+        return True
+
+    async def verify_whatsapp_otp(self, phone: str, otp: str) -> bool:
+        logger.info("mock_verify_whatsapp_otp", phone=phone, otp=otp)
+        return otp == "123456"

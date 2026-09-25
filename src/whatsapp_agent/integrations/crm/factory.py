@@ -31,6 +31,14 @@ def get_crm_provider() -> CRMProvider:
     if settings.crm_provider == ProviderEnum.MOCK:
         logger.info("initializing_mock_crm_provider")
         _provider_instance = MockCRMProvider()
+    elif settings.crm_provider == ProviderEnum.FRAPPE:
+        from whatsapp_agent.integrations.crm.frappe import FrappeCRMProvider
+        logger.info("initializing_frappe_crm_provider")
+        _provider_instance = FrappeCRMProvider()
+    elif settings.crm_provider == ProviderEnum.HUBSPOT:
+        from whatsapp_agent.integrations.crm.hubspot import HubSpotCRMProvider
+        logger.info("initializing_hubspot_crm_provider")
+        _provider_instance = HubSpotCRMProvider()
     else:
         logger.warning(
             "unsupported_crm_provider_fallback_to_mock",

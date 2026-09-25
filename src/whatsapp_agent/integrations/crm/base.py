@@ -72,3 +72,24 @@ class CRMProvider(ABC):
             The created lead ID, or None on failure.
         """
         pass
+
+    @abstractmethod
+    async def get_employee_details(self, employee_id: str) -> dict[str, Any] | None:
+        """Fetch employee details from CRM/ERP."""
+        pass
+
+    @abstractmethod
+    async def get_invoice_details(self, invoice_id: str, phone: str) -> dict[str, Any] | None:
+        """Fetch invoice details from CRM/ERP."""
+        pass
+
+    @abstractmethod
+    async def send_whatsapp_otp(self, phone: str) -> str | bool:
+        """Send OTP to a WhatsApp number."""
+        pass
+
+    @abstractmethod
+    async def verify_whatsapp_otp(self, phone: str, otp: str) -> bool:
+        """Verify the OTP sent to a WhatsApp number."""
+        pass
+

@@ -27,7 +27,15 @@ The following features and system components have been successfully built and ar
    - The system successfully pushes qualified leads to an external CRM in the background. The background task (`sync_lead_to_crm`) is built to handle this seamlessly.
 
 7. **MCP Tools Integration (Phase 8):**
-   - The foundation for connecting external tools (like HubSpot CRM and Google Calendar) using the Model Context Protocol (MCP) is implemented. The system starts these servers automatically.
+   - The foundation for connecting external tools using the Model Context Protocol (MCP) is implemented. The system starts these servers automatically.
+
+8. **Frappe CRM & ERPNext Integrations:**
+   - Employees can enter their Employee ID in WhatsApp to fetch details securely from our own hosted Frappe CRM/ERPNext, protected by OTP verification.
+   - Customers can fetch their invoice details by providing their Invoice ID and WhatsApp number, also secured by OTP verification.
+   - We have fully configured `FrappeCRMProvider` to handle these interactions with the backend API.
+
+9. **HubSpot CRM Integration:**
+   - Alongside Frappe, we added support for HubSpot CRM so we can manage and sync leads easily.
 
 ---
 
