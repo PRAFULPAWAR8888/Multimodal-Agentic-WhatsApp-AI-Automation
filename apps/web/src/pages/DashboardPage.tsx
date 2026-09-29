@@ -1,5 +1,6 @@
 import { MessageSquare, Bot, Users, Timer } from 'lucide-react'
-
+import { useEffect, useState } from 'react'
+import { getConversations, type Conversation } from '../services/conversations'
 export default function DashboardPage() {
   const stats = [
     { label: 'Total Conversations', value: '1,248', trend: '+12%', icon: MessageSquare, color: 'text-blue-500', border: 'border-blue-500/20' },
@@ -7,6 +8,23 @@ export default function DashboardPage() {
     { label: 'Leads Captured', value: '156', trend: '+8%', icon: Users, color: 'text-purple-500', border: 'border-purple-500/20' },
     { label: 'Response Time', value: '1.2s', trend: '-5%', icon: Timer, color: 'text-orange-500', border: 'border-orange-500/20' },
   ]
+
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchConversations = async () => {
+      try {
+        const data = await getConversations()
+        setConversations(data)
+      } catch (error) {
+        console.error('Failed to fetch conversations', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchConversations()
+  }, [])
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -42,23 +60,38 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 bg-card rounded-xl border border-border p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold">Recent Conversations</h3>
-            <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">MOCK DATA</span>
+            {loading ? (
+              <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full animate-pulse">LOADING...</span>
+            ) : (
+              <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">LIVE DATA</span>
+            )}
           </div>
           <div className="space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex items-center justify-between p-4 rounded-lg bg-background/50 border border-border/50">
+            {conversations.length === 0 && !loading && (
+              <div className="text-center text-muted-foreground p-4">No recent conversations found.</div>
+            )}
+            {conversations.slice(0, 5).map((conv) => (
+              <div key={conv.id} className="flex items-center justify-between p-4 rounded-lg bg-background/50 border border-border/50 hover:border-primary/50 transition-colors">
                 <div className="flex items-center gap-4">
                   <div className="h-10 w-10 rounded-full bg-secondary flex items-center justify-center">
                     <Users className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <div>
-                    <p className="font-medium">+1 (555) 010-{i}</p>
-                    <p className="text-sm text-muted-foreground">Product inquiry about pricing...</p>
+                    <p className="font-medium">{conv.contact_name} ({conv.contact_phone})</p>
+                    <p className="text-sm text-muted-foreground">Total messages: {conv.message_count}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-md">Resolved</span>
-                  <span className="text-xs text-muted-foreground">2m ago</span>
+                  <span className={`text-xs px-2 py-1 rounded-md ${
+                    conv.status === 'active' ? 'bg-success/10 text-success' : 
+                    conv.status === 'escalated' ? 'bg-destructive/10 text-destructive' : 
+                    'bg-muted text-muted-foreground'
+                  }`}>
+                    {conv.status.charAt(0).toUpperCase() + conv.status.slice(1)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                  </span>
                 </div>
               </div>
             ))}

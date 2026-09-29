@@ -183,6 +183,11 @@ class AppSettings(BaseSettings):
     ollama_base_url: str = Field(default="http://localhost:11434")
     ollama_model: str = Field(default="llama3.2")
 
+    # Hugging Face
+    huggingface_api_key: str = Field(default="", description="Hugging Face API token.")
+    huggingface_model: str = Field(default="meta-llama/Llama-3.2-3B-Instruct")
+    huggingface_base_url: str = Field(default="https://api-inference.huggingface.co/v1")
+
     # ── Embeddings ──────────────────────────────────────────────────────────────
     embedding_provider: EmbeddingProvider = Field(default=EmbeddingProvider.SENTENCE_TRANSFORMERS)
     embedding_model: str = Field(default="all-MiniLM-L6-v2")
@@ -283,6 +288,18 @@ class AppSettings(BaseSettings):
     worker_max_jobs: int = Field(default=10)
     worker_job_timeout: int = Field(default=300, description="Job timeout in seconds.")
     worker_health_check_interval: int = Field(default=60)
+
+    # ── Future-Proof Features ───────────────────────────────────────────────────
+    strapi_url: str = Field(default="http://localhost:1337")
+    strapi_api_token: str = Field(default="")
+
+    adobe_marketo_rest_endpoint: str = Field(default="")
+    adobe_marketo_client_id: str = Field(default="")
+    adobe_marketo_client_secret: str = Field(default="")
+
+    enable_outbound_campaigns: bool = Field(default=False)
+    enable_live_sentiment_analysis: bool = Field(default=False)
+    enable_erp_write_actions: bool = Field(default=False)
 
     @model_validator(mode="after")
     def validate_provider_credentials(self) -> "AppSettings":

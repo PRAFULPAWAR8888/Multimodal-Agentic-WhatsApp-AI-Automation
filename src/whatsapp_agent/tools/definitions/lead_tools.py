@@ -52,7 +52,26 @@ async def upsert_lead_record(
             )
             db.add(lead)
             await db.commit()
-            logger.info("lead_saved_to_db", lead_score=qualification_score)
+            
+            # Extract lead ID
+            lead_id = str(lead.id)
+            
+            logger.info("lead_saved_to_db", lead_id=lead_id, lead_score=qualification_score)
+            
+            # Trigger asynchronous CRM sync
+            from arq import create_pool
+            from arq.connections import RedisSettings
+            from whatsapp_agent.config.settings import get_settings
+            
+            settings = get_settings()
+            redis_settings = RedisSettings.from_dsn(str(settings.redis_url))
+            arq_pool = await create_pool(redis_settings)
+            
+            await arq_pool.enqueue_job("sync_lead_to_crm", lead_id)
+            await arq_pool.close()
+            
+            logger.info("enqueued_lead_sync_to_crm", lead_id=lead_id)
+
         return True
     except Exception as e:
         logger.error("lead_save_failed", error=str(e))

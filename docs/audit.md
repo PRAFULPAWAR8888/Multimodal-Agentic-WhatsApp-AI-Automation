@@ -114,7 +114,7 @@ START → load_profile → retrieve_context → supervisor → [agent] → send_
 | `OpenAILLMProvider` | ✅ Full: complete, complete_json, complete_with_tools |
 | `MockLLMProvider` | ⚠️ Missing `complete_with_tools` (see Section 2) |
 | `OllamaLLMProvider` | ❌ Stub — raises NotImplementedError |
-| `HuggingFaceLLMProvider` | ❌ Not implemented at all |
+| `HuggingFaceLLMProvider` | ✅ Implemented and configured |
 | `LLMGateway` | ✅ Governance wrapper with budget checking |
 
 ### 1.9 WhatsApp Providers

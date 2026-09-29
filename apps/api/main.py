@@ -27,6 +27,15 @@ from whatsapp_agent.observability.logging import (
 from arq import create_pool
 from arq.connections import RedisSettings
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+
+
 settings = get_settings()
 logger = get_logger(__name__)
 
@@ -45,6 +54,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log_level=settings.log_level,
         log_format=settings.log_format,
     )
+    
+    # ── LICENSE VALIDATION (ANTI-RESALE) ──
+    from whatsapp_agent.core.license import validate_license_async
+    await validate_license_async()
+    
     logger.info(
         "application_starting",
         app_name=settings.app_name,
@@ -134,6 +148,14 @@ def create_application() -> FastAPI:
 
     # ── Exception Handlers ─────────────────────────────────────────────────────
     register_exception_handlers(app)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    # ── Rate Limiting Middleware ───────────────────────────────────────────────
+    app.state.limiter = limiter
+    app.add_middleware(SlowAPIMiddleware)
+
+    # ── Observability / Metrics ────────────────────────────────────────────────
+    Instrumentator().instrument(app).expose(app)
 
     # ── Routers ────────────────────────────────────────────────────────────────
     from apps.api.routers.health import router as health_router
@@ -146,12 +168,16 @@ def create_application() -> FastAPI:
     from apps.api.routers.conversations import router as conversations_router
     from apps.api.routers.workspaces import router as workspaces_router
     from apps.api.routers.knowledge import router as knowledge_router
+    from apps.api.routers.twilio import router as twilio_router
+    from apps.api.routers.campaigns import router as campaigns_router
 
     app.include_router(auth_router, prefix=settings.api_v1_prefix, tags=["Auth"])
     app.include_router(webhooks_router, prefix=settings.api_v1_prefix, tags=["Webhooks"])
     app.include_router(conversations_router, prefix=settings.api_v1_prefix, tags=["Conversations"])
     app.include_router(workspaces_router, prefix=settings.api_v1_prefix, tags=["Workspaces"])
     app.include_router(knowledge_router, prefix=settings.api_v1_prefix, tags=["Knowledge"])
+    app.include_router(campaigns_router, prefix=settings.api_v1_prefix, tags=["Campaigns"])
+    app.include_router(twilio_router, tags=["Voice"])
 
     logger.info("routers_registered")
     return app

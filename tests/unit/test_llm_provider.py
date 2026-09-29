@@ -1,6 +1,6 @@
 import pytest
 
-from whatsapp_agent.agents.llm_provider import get_llm_provider, OpenAILLMProvider, OllamaLLMProvider, MockLLMProvider
+from whatsapp_agent.agents.llm_provider import get_llm_provider, OpenAILLMProvider, OllamaLLMProvider, MockLLMProvider, HuggingFaceLLMProvider, LLMGateway, FallbackLLMProvider
 from whatsapp_agent.config.settings import get_settings, LLMProvider
 
 @pytest.fixture(autouse=True)
@@ -17,7 +17,10 @@ def test_llm_provider_factory_openai():
     settings = get_settings()
     settings.llm_provider = LLMProvider.OPENAI
     provider = get_llm_provider()
-    assert isinstance(provider, OpenAILLMProvider)
+    
+    assert isinstance(provider, LLMGateway)
+    assert isinstance(provider.inner, FallbackLLMProvider)
+    assert isinstance(provider.inner.primary, OpenAILLMProvider)
 
 
 def test_llm_provider_factory_ollama():
@@ -25,7 +28,20 @@ def test_llm_provider_factory_ollama():
     settings = get_settings()
     settings.llm_provider = LLMProvider.OLLAMA
     provider = get_llm_provider()
-    assert isinstance(provider, OllamaLLMProvider)
+    
+    assert isinstance(provider, LLMGateway)
+    assert isinstance(provider.inner, OllamaLLMProvider)
+
+
+def test_llm_provider_factory_huggingface():
+    """Test factory returns HuggingFaceLLMProvider when configured."""
+    settings = get_settings()
+    settings.llm_provider = LLMProvider.HUGGINGFACE
+    provider = get_llm_provider()
+    
+    assert isinstance(provider, LLMGateway)
+    assert isinstance(provider.inner, FallbackLLMProvider)
+    assert isinstance(provider.inner.primary, HuggingFaceLLMProvider)
 
 
 def test_llm_provider_factory_mock():
@@ -33,4 +49,7 @@ def test_llm_provider_factory_mock():
     settings = get_settings()
     settings.llm_provider = "invalid_enum_value" # Simulating mock/test scenario
     provider = get_llm_provider()
-    assert isinstance(provider, MockLLMProvider)
+    
+    assert isinstance(provider, LLMGateway)
+    assert isinstance(provider.inner, FallbackLLMProvider)
+    assert isinstance(provider.inner.primary, OpenAILLMProvider)  # defaults to OpenAI if invalid

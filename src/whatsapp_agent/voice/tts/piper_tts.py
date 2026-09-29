@@ -144,6 +144,45 @@ class PiperTTSProvider:
                 except OSError:
                     pass
 
+    async def generate_twilio_audio(self, text: str) -> bytes:
+        """
+        Generate raw 8kHz mu-law audio for Twilio WebSockets.
+        """
+        if not text.strip():
+            raise TTSError("Empty text provided for TTS.")
+
+        logger.info("twilio_tts_generation_started", text_length=len(text))
+        
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as wav_file, \
+             tempfile.NamedTemporaryFile(suffix=".mulaw", delete=False) as mulaw_file:
+            
+            wav_path = wav_file.name
+            mulaw_path = mulaw_file.name
+
+        try:
+            # 1. Piper to WAV
+            cmd_piper = ["piper", "--model", str(self._model_path), "--output_file", wav_path]
+            await self._run_subprocess(cmd_piper, input_data=text.encode('utf-8'))
+
+            # 2. FFmpeg WAV to 8kHz mu-law
+            cmd_ffmpeg = [
+                "ffmpeg", "-y", "-i", wav_path,
+                "-f", "mulaw", "-ar", "8000", "-ac", "1",
+                mulaw_path
+            ]
+            await self._run_subprocess(cmd_ffmpeg)
+
+            with open(mulaw_path, "rb") as f:
+                mulaw_bytes = f.read()
+
+            return mulaw_bytes
+        finally:
+            for p in (wav_path, mulaw_path):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
 # Module-level singleton
 _tts_provider: PiperTTSProvider | None = None
 

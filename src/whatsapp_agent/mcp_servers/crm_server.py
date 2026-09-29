@@ -47,5 +47,23 @@ async def verify_whatsapp_otp(phone: str, otp: str) -> bool:
     crm = get_crm_provider()
     return await crm.verify_whatsapp_otp(phone, otp)
 
+@mcp.tool()
+async def apply_for_leave(employee_id: str, leave_type: str, from_date: str, to_date: str, reason: str) -> bool:
+    """Submit a Leave Application for an employee to ERPNext. Ensure the employee is OTP verified before doing this."""
+    crm = get_crm_provider()
+    return await crm.apply_for_leave(employee_id, leave_type, from_date, to_date, reason)
+
+@mcp.tool()
+async def create_expense_claim(employee_id: str, expense_type: str, amount: float, reason: str) -> bool:
+    """Submit an Expense Claim for an employee to ERPNext. Ensure the employee is OTP verified before doing this."""
+    crm = get_crm_provider()
+    return await crm.create_expense_claim(employee_id, expense_type, amount, reason)
+
+@mcp.tool()
+async def create_support_ticket(raised_by: str, subject: str, description: str) -> bool:
+    """Create a new Support Ticket (Issue) in ERPNext for the customer or employee."""
+    crm = get_crm_provider()
+    return await crm.create_support_ticket(raised_by, subject, description)
+
 if __name__ == "__main__":
     mcp.run(transport='stdio')

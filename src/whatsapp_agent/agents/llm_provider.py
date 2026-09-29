@@ -335,6 +335,26 @@ class OllamaLLMProvider(OpenAILLMProvider):
         self._max_tokens = self._settings.openai_max_tokens
         self._temperature = self._settings.openai_temperature
 
+
+class HuggingFaceLLMProvider(OpenAILLMProvider):
+    """
+    Hugging Face LLM provider using HF's OpenAI-compatible endpoint.
+    """
+
+    def __init__(self) -> None:
+        self._settings = get_settings()
+        self._model = self._settings.huggingface_model
+        
+        self._client = AsyncOpenAI(
+            base_url=self._settings.huggingface_base_url,
+            api_key=self._settings.huggingface_api_key or "hf_dummy",
+            timeout=self._settings.openai_request_timeout,
+            max_retries=0,
+        )
+        self._max_tokens = self._settings.openai_max_tokens
+        self._temperature = self._settings.openai_temperature
+
+
 class FallbackLLMProvider(BaseLLMProvider):
     """
     Tries the primary provider first, falls back to the secondary if it fails.
@@ -538,9 +558,23 @@ def get_llm_provider() -> BaseLLMProvider:
     """
     global _llm_provider
     if _llm_provider is None:
-        primary = OpenAILLMProvider()
+        from whatsapp_agent.config.settings import LLMProvider
+        settings = get_settings()
+        
+        if settings.llm_provider == LLMProvider.HUGGINGFACE:
+            primary: BaseLLMProvider = HuggingFaceLLMProvider()
+        elif settings.llm_provider == LLMProvider.OLLAMA:
+            primary = OllamaLLMProvider()
+        else:
+            primary = OpenAILLMProvider()
+            
         fallback = OllamaLLMProvider()
-        inner = FallbackLLMProvider(primary, fallback)
+        
+        if isinstance(primary, OllamaLLMProvider):
+            inner = primary
+        else:
+            inner = FallbackLLMProvider(primary, fallback)
+            
         _llm_provider = LLMGateway(inner)
         
     return _llm_provider

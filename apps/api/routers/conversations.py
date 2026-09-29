@@ -125,10 +125,10 @@ async def send_human_reply(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
         
-    # Re-enable AI or keep it disabled? Typically human sending a message keeps it disabled, 
-    # but we might want an explicit toggle. For now, leave ai_enabled as False.
+    # SEAMLESS TAKEOVER: Instantly disable AI when human intervenes
+    conv.ai_enabled = False
     
-    # Save the outbound message to DB (Worker would usually poll and send this, or we send directly)
+    # Save the outbound message to DB
     new_msg = WhatsAppMessage(
         workspace_id=conv.workspace_id,
         conversation_id=conv.id,
@@ -149,3 +149,29 @@ async def send_human_reply(
     
     await db.commit()
     return {"status": "queued"}
+
+class ToggleAIRequest(BaseModel):
+    ai_enabled: bool
+
+@router.post("/{conversation_id}/toggle-ai")
+async def toggle_ai(
+    conversation_id: uuid.UUID,
+    request: ToggleAIRequest,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Allow human agents to turn the AI back on/off for a specific chat."""
+    stmt = select(WhatsAppConversation).where(WhatsAppConversation.id == conversation_id)
+    result = await db.execute(stmt)
+    conv = result.scalar_one_or_none()
+    
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+        
+    conv.ai_enabled = request.ai_enabled
+    # If we are turning it back on, clear the escalated status
+    if request.ai_enabled and conv.status == ConversationStatus.ESCALATED:
+        conv.status = ConversationStatus.ACTIVE
+        
+    await db.commit()
+    return {"status": "success", "ai_enabled": conv.ai_enabled}
