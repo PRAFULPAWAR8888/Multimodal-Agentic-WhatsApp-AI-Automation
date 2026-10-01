@@ -36,18 +36,18 @@ if (-not $postgres_ready) {
 
 # Run database migrations
 Write-Host "Running Alembic migrations..." -ForegroundColor Cyan
-alembic upgrade head
+uv run alembic -c migrations/alembic.ini upgrade head
 
 # Instructions for frontend
 Write-Host "Database and cache are running." -ForegroundColor Green
 Write-Host "To start the backend API:" -ForegroundColor Yellow
-Write-Host "  uvicorn apps.api.main:app --reload" -ForegroundColor Yellow
+Write-Host "  uv run uvicorn apps.api.main:app --reload" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "To start the frontend:" -ForegroundColor Yellow
 Write-Host "  cd apps/web && npm run dev" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "To start the worker:" -ForegroundColor Yellow
-Write-Host "  python -m apps.worker.main" -ForegroundColor Yellow
+Write-Host "  uv run python -m apps.worker.main" -ForegroundColor Yellow
 
 # Start backend (optional, uncomment to auto-start)
 # Write-Host "Starting Uvicorn API server..." -ForegroundColor Cyan

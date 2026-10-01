@@ -5,6 +5,9 @@ import httpx
 from datetime import datetime
 from loguru import logger
 from whatsapp_agent.config.settings import get_settings
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class LicenseError(Exception):
     """Raised when license validation fails."""

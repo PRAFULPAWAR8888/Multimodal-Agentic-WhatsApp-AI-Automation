@@ -12,7 +12,7 @@ import tiktoken
 from pydantic import BaseModel
 
 from whatsapp_agent.config.settings import get_settings
-from whatsapp_agent.core.exceptions import AppError
+from whatsapp_agent.core.exceptions import WhatsAppAgentError as AppError
 
 logger = logging.getLogger(__name__)
 

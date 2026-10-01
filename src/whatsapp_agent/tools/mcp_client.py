@@ -59,7 +59,7 @@ class MCPClientManager:
                 default_registry.register(
                     name=tool.name,
                     description=tool.description or "",
-                    schema=tool.inputSchema,
+                    schema=tool.input_schema,
                     risk_level=RiskLevel.MEDIUM, # Default MCP to medium risk
                     owner_source=server_name,
                     is_mcp=True,
