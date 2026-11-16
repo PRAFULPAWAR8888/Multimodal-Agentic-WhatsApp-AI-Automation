@@ -240,13 +240,10 @@ class FasterWhisperSTT:
         segments, info = model.transcribe(
             str(audio_path),
             language=language,
-            beam_size=5,
-            vad_filter=True,         # Voice Activity Detection — removes silence
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=400,
-            ),
-            word_timestamps=False,    # Not needed for basic transcription
+            beam_size=1,
+            best_of=1,
+            vad_filter=False,        # Disable redundant Silero VAD to prevent dropping 8kHz telephony speech
+            word_timestamps=False,   # Not needed for basic transcription
         )
 
         # Collect all segments

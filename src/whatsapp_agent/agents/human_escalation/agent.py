@@ -34,10 +34,18 @@ async def human_escalation_agent_node(state: AgentState) -> AgentState:
 
     logger.info("human_escalation_agent_responding", workspace_id=workspace_id, message_id=message_id)
 
-    response_text = (
-        "I understand. I am transferring you to a human support agent now. "
-        "Please hold on, and someone will be with you shortly."
-    )
+    default_msg = "I understand. I am transferring you to a human support agent now. Please hold on, and someone will be with you shortly."
+    language = state.get("language_detected", "English")
+
+    try:
+        from whatsapp_agent.agents.llm_provider import get_llm_provider
+        llm = get_llm_provider()
+        prompt = f"Translate this message: '{default_msg}'. You MUST respond in the EXACT SAME language and script as: {language}. Return ONLY the translated string."
+        response = await llm.complete(system_prompt=prompt, user_message="Translate")
+        response_text = response.content.strip()
+    except Exception as e:
+        logger.error("human_escalation_llm_error", error=str(e))
+        response_text = default_msg
 
     try:
         msg_uuid = uuid.UUID(message_id)
@@ -64,8 +72,8 @@ async def human_escalation_agent_node(state: AgentState) -> AgentState:
                         conversation_id=str(conversation.id),
                         phone=state.get("contact_wa_id", "")
                     )
-                    conversation.ai_enabled = False
-                    conversation.status = ConversationStatus.ESCALATED
+                    # conversation.ai_enabled = False
+                    # conversation.status = ConversationStatus.ESCALATED
                     await db.commit()
                 else:
                     logger.error("escalation_failed_conversation_not_found", message_id=message_id)

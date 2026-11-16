@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { MessageCircle, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
+import { apiClient } from '@/services/api'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('admin@example.com')
+  const [password, setPassword] = useState('Admin@123')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -17,17 +18,17 @@ export default function LoginPage() {
     setError('')
     
     try {
-      // Mock auth for now
-      setTimeout(() => {
-        setAuth(
-          { id: '1', email, full_name: 'Demo User', is_active: true },
-          { id: 'w1', name: 'Demo Workspace', slug: 'demo', plan: 'pro' },
-          'mock-jwt-token'
-        )
-        navigate('/dashboard')
-      }, 1000)
-    } catch (err) {
-      setError('Invalid credentials')
+      const response = await apiClient.post('/auth/login', { email, password })
+      const data = response.data
+      const user = data.user || { id: 'a36883dc-addf-4c3b-bdde-f57af9211453', email, full_name: 'Administrator', is_active: true }
+      const workspace = data.workspace || { id: 'fb06fb3d-08f4-454c-9422-50f60c25239c', name: 'Default Workspace', slug: 'default', plan: 'pro' }
+      
+      setAuth(user, workspace, data.access_token)
+      navigate('/dashboard')
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.response?.data?.detail || 'Invalid email or password'
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    } finally {
       setLoading(false)
     }
   }

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { MessageSquare, Search, Bot, User, Send } from 'lucide-react'
+import { useEffect, useState, useRef } from 'react'
+import { MessageSquare, Search, Bot, Send } from 'lucide-react'
 import { getConversations, type Conversation } from '../services/conversations'
 import { apiClient } from '../services/api'
 
@@ -10,11 +10,20 @@ export default function ConversationsPage() {
   const [messages, setMessages] = useState<any[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [replyText, setReplyText] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   const fetchConversations = async () => {
     try {
       const data = await getConversations()
       setConversations(data)
+      if (!selectedConv && data.length > 0) {
+        setSelectedConv(data[0])
+      }
     } catch (error) {
       console.error('Failed to fetch conversations', error)
     } finally {
@@ -25,6 +34,10 @@ export default function ConversationsPage() {
   useEffect(() => {
     fetchConversations()
   }, [])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
 
   useEffect(() => {
     if (selectedConv) {
@@ -71,6 +84,11 @@ export default function ConversationsPage() {
     }
   }
 
+  const filteredConversations = conversations.filter(c =>
+    (c.contact_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (c.contact_phone || '').includes(searchQuery)
+  )
+
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col md:flex-row border border-border rounded-xl bg-card overflow-hidden animate-in fade-in duration-500 shadow-sm">
       {/* Sidebar List */}
@@ -83,6 +101,8 @@ export default function ConversationsPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input 
               type="text" 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search contacts..." 
               className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
@@ -91,10 +111,12 @@ export default function ConversationsPage() {
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {loading ? (
             <div className="p-4 text-center text-sm text-muted-foreground animate-pulse">Loading conversations...</div>
-          ) : conversations.length === 0 ? (
-            <div className="p-4 text-center text-sm text-muted-foreground">No conversations yet.</div>
+          ) : filteredConversations.length === 0 ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              {searchQuery ? 'No matching contacts.' : 'No conversations yet.'}
+            </div>
           ) : (
-            conversations.map((conv) => (
+            filteredConversations.map((conv) => (
               <button
                 key={conv.id}
                 onClick={() => setSelectedConv(conv)}
@@ -174,6 +196,7 @@ export default function ConversationsPage() {
                   )
                 })
               )}
+              <div ref={messagesEndRef} />
             </div>
 
             <div className="p-4 border-t border-border bg-card">

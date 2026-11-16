@@ -84,17 +84,110 @@ class MockCRMProvider(CRMProvider):
     async def create_lead(self, phone: str, name: str | None, email: str | None, **kwargs: Any) -> str | None:
         """Mock creating a lead."""
         logger.info("mock_crm_create_lead", phone=phone, name=name)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.05)
         
+        lead_id = f"LEAD-{phone}"
+        client_name = name or kwargs.get("client_name") or "Unknown"
+        reason = (
+            kwargs.get("reasons_to_reach_us") 
+            or kwargs.get("reason_to_reach_us") 
+            or kwargs.get("reason") 
+            or kwargs.get("requirement") 
+            or ""
+        )
         self._customers[phone] = {
-            "name": name or "Unknown",
+            "lead_id": lead_id,
+            "name": client_name,
+            "client_name": client_name,
             "email": email or "unknown@example.com",
+            "phone": phone,
+            "mobile_no": phone,
+            "reasons_to_reach_us": reason,
+            "requirement": reason,
             "tier": "New Lead",
+            "status": kwargs.get("status", "New"),
+            "lead_score": kwargs.get("lead_score", 0),
+            "company": kwargs.get("company", ""),
             "ltv": "$0",
-            "notes": "Imported from WhatsApp"
+            "notes": kwargs.get("notes", "Imported from WhatsApp")
         }
         
-        return f"LEAD-{phone}"
+        return lead_id
+
+    async def update_lead(self, lead_id: str | None = None, **kwargs: Any) -> bool:
+        """Mock updating an existing lead with Client Name, Email, Phone, and Reasons to Reach us."""
+        logger.info("mock_crm_update_lead", lead_id=lead_id, kwargs=kwargs)
+        await asyncio.sleep(0.05)
+
+        target_phone = None
+        phone_val = kwargs.get("phone") or kwargs.get("mobile_no")
+
+        if lead_id:
+            for phone, record in self._customers.items():
+                if record.get("lead_id") == lead_id or f"LEAD-{phone}" == lead_id:
+                    target_phone = phone
+                    break
+        elif phone_val and phone_val in self._customers:
+            target_phone = phone_val
+        elif phone_val:
+            # If lead doesn't exist yet, create mock record
+            self._customers[phone_val] = {"lead_id": f"LEAD-{phone_val}", "phone": phone_val}
+            target_phone = phone_val
+
+        if target_phone:
+            record = self._customers[target_phone]
+
+            # 1. Client Name
+            client_name = kwargs.get("client_name") or kwargs.get("name")
+            if client_name:
+                record["name"] = client_name
+                record["client_name"] = client_name
+
+            # 2. Email
+            if "email" in kwargs and kwargs["email"]:
+                record["email"] = kwargs["email"]
+
+            # 3. Phone
+            phone_val = kwargs.get("phone") or kwargs.get("mobile_no")
+            if phone_val:
+                record["phone"] = phone_val
+                record["mobile_no"] = phone_val
+
+            # 4. Reasons to Reach us
+            reason_val = (
+                kwargs.get("reasons_to_reach_us") 
+                or kwargs.get("reason_to_reach_us") 
+                or kwargs.get("reason") 
+                or kwargs.get("requirement") 
+                or kwargs.get("notes")
+            )
+            if reason_val:
+                record["reasons_to_reach_us"] = reason_val
+                record["requirement"] = reason_val
+
+            if "status" in kwargs and kwargs["status"]:
+                record["status"] = kwargs["status"]
+            if "lead_score" in kwargs and kwargs["lead_score"] is not None:
+                record["lead_score"] = kwargs["lead_score"]
+
+            for k, v in kwargs.items():
+                if v is not None:
+                    record[k] = v
+
+            logger.info("mock_crm_lead_updated", lead_id=lead_id, updated_record=record)
+            return True
+
+        logger.warning("mock_crm_lead_not_found_for_update", lead_id=lead_id)
+        return False
+
+    async def get_lead(self, lead_id: str) -> dict[str, Any] | None:
+        """Mock getting lead details."""
+        logger.info("mock_crm_get_lead", lead_id=lead_id)
+        await asyncio.sleep(0.05)
+        for phone, record in self._customers.items():
+            if record.get("lead_id") == lead_id or f"LEAD-{phone}" == lead_id:
+                return {**record, "id": lead_id, "phone": record.get("phone", phone)}
+        return None
 
     async def get_employee_details(self, employee_id: str) -> dict[str, Any] | None:
         logger.info("mock_get_employee_details", employee_id=employee_id)

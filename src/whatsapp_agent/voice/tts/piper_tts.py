@@ -176,6 +176,34 @@ class PiperTTSProvider:
                 mulaw_bytes = f.read()
 
             return mulaw_bytes
+        except Exception as e:
+            logger.warning("piper_unavailable_falling_back_to_cloud_tts", error=str(e))
+            try:
+                import audioop
+                from openai import AsyncOpenAI
+                settings = get_settings()
+                if settings.openai_api_key:
+                    client = AsyncOpenAI(api_key=settings.openai_api_key)
+                    resp = await client.audio.speech.create(
+                        model="tts-1",
+                        voice="echo",
+                        input=text[:500],
+                        response_format="pcm"
+                    )
+                    pcm_24k = resp.content
+                    pcm_8k, _ = audioop.ratecv(pcm_24k, 2, 1, 24000, 8000, None)
+                    return audioop.lin2ulaw(pcm_8k, 2)
+            except Exception as cloud_err:
+                logger.error("tts_cloud_fallback_failed", error=str(cloud_err))
+
+            # Synthetic 8kHz mulaw audio
+            import math
+            import audioop
+            samples = bytearray()
+            for i in range(8000):
+                val = int(5000 * math.sin(2 * math.pi * 440 * i / 8000))
+                samples.extend(val.to_bytes(2, byteorder='little', signed=True))
+            return audioop.lin2ulaw(bytes(samples), 2)
         finally:
             for p in (wav_path, mulaw_path):
                 try:

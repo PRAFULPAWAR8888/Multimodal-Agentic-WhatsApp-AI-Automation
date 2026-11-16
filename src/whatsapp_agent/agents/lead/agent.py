@@ -28,6 +28,16 @@ LEAD_SYSTEM_PROMPT = """You are {persona_name}, a lead qualification assistant f
 
 Your job is to analyze the customer's message and extract structured lead information.
 
+CRITICAL INSTRUCTIONS FOR YOUR RESPONSE:
+1. If the customer is inquiring about building/developing a project or shows buying intent, you MUST collect all 5 essential details: Full Name, Email, Phone Number, Address/Location, and Project Scope/Requirements.
+2. If any of these are missing, your `response_message` MUST warmly and professionally ask for the missing details using a clean numbered WhatsApp list:
+   1. 👤 *Full Name*:
+   2. 📧 *Email Address*:
+   3. 📱 *Phone Number* (or confirm this WhatsApp number):
+   4. 📍 *Address / Location (City or Company)*:
+   5. 📝 *Reason to Reach Us / Project Details* (What specific app, software, or features would you like to build?):
+3. NEVER use cold or robotic internal CRM phrasing. Be warm, enthusiastic, and helpful.
+
 Customer's message: {question}
 
 Respond ONLY with valid JSON matching this exact structure:
@@ -38,7 +48,8 @@ Respond ONLY with valid JSON matching this exact structure:
     "budget": "<mentioned budget/price range or null>",
     "requirement": "<brief summary of what the customer needs>",
     "qualification_score": <integer 0 to 100>,
-    "is_lead": <true if the person shows buying intent, false otherwise>
+    "is_lead": <true if the person shows buying intent, false otherwise>,
+    "response_message": "<warm, structured response to the user asking for missing contact details if needed, in their EXACT language and script. Detected language: {language}>"
 }}
 
 Scoring guide:
@@ -70,23 +81,27 @@ async def lead_agent_node(state: AgentState) -> AgentState:
         system_prompt = LEAD_SYSTEM_PROMPT.format(
             persona_name=profile.get("ai_persona_name", "AI Assistant"),
             business_name=profile.get("business_name", "our business"),
-            question=effective_text
+            question=effective_text,
+            language=state.get("language_detected", "English")
         )
 
         # complete_json returns a tuple: (parsed_dict, LLMUsage)
         parsed_data, usage = await llm.complete_json(
             system_prompt=system_prompt,
             user_message=effective_text,
+            conversation_history=state.get("conversation_history", []),
         )
 
         extracted_lead = LeadExtractionSchema.model_validate(parsed_data)
         
         if extracted_lead.is_lead and workspace_id:
             tool_runner = ToolRunner(default_registry)
+            phone = state.get("contact_wa_id", "UnknownPhone")
             await tool_runner.execute(
                 tool_name="upsert_lead_record",
                 arguments={
                     "workspace_id": workspace_id,
+                    "phone": phone,
                     "customer_name": extracted_lead.customer_name,
                     "company": extracted_lead.company,
                     "email": extracted_lead.email,
@@ -108,10 +123,7 @@ async def lead_agent_node(state: AgentState) -> AgentState:
         )
         
         # Generate a polite response based on extraction
-        if extracted_lead.is_lead:
-            response_text = "Thank you! I've noted down your requirements. Our sales team will reach out to you shortly."
-        else:
-            response_text = "Thanks for the information. Let me know if you have any specific questions about our products or pricing!"
+        response_text = extracted_lead.response_message
 
         return {
             **state,

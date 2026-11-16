@@ -33,7 +33,7 @@ def _load_paddleocr():
         
         # use_angle_cls=True to automatically rotate images
         # lang="en" for English (can be extended)
-        ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+        ocr = PaddleOCR(use_angle_cls=True, lang="en")
         
         logger.info("paddleocr_model_loaded", latency_ms=round((time.monotonic() - start) * 1000))
         return ocr
@@ -78,7 +78,7 @@ class PaddleOCRProvider:
                 img_array = np.array(image)
                 
                 ocr = _load_paddleocr()
-                result = ocr.ocr(img_array, cls=True)
+                result = ocr.ocr(img_array)
                 
                 # Result format: [[[[x,y],...], (text, confidence)], ...]
                 extracted_lines = []

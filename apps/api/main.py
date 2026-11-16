@@ -170,13 +170,19 @@ def create_application() -> FastAPI:
     from apps.api.routers.knowledge import router as knowledge_router
     from apps.api.routers.twilio import router as twilio_router
     from apps.api.routers.campaigns import router as campaigns_router
+    from apps.api.routers.calendar import router as calendar_router
+    from apps.api.routers.leads import router as leads_router
+    from apps.api.routers.analytics import router as analytics_router
 
     app.include_router(auth_router, prefix=settings.api_v1_prefix, tags=["Auth"])
     app.include_router(webhooks_router, prefix=settings.api_v1_prefix, tags=["Webhooks"])
     app.include_router(conversations_router, prefix=settings.api_v1_prefix, tags=["Conversations"])
     app.include_router(workspaces_router, prefix=settings.api_v1_prefix, tags=["Workspaces"])
     app.include_router(knowledge_router, prefix=settings.api_v1_prefix, tags=["Knowledge"])
+    app.include_router(leads_router, prefix=settings.api_v1_prefix, tags=["Leads"])
+    app.include_router(analytics_router, prefix=settings.api_v1_prefix, tags=["Analytics"])
     app.include_router(campaigns_router, prefix=settings.api_v1_prefix, tags=["Campaigns"])
+    app.include_router(calendar_router, prefix=settings.api_v1_prefix, tags=["Calendar"])
     app.include_router(twilio_router, tags=["Voice"])
 
     logger.info("routers_registered")

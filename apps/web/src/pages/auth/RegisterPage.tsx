@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { MessageCircle, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
+import { apiClient } from '@/services/api'
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -11,22 +12,31 @@ export default function RegisterPage() {
     workspaceName: ''
   })
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
   const setAuth = useAuthStore(state => state.setAuth)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError('')
     
-    // Mock register
-    setTimeout(() => {
-      setAuth(
-        { id: '1', email: formData.email, full_name: formData.fullName, is_active: true },
-        { id: 'w1', name: formData.workspaceName, slug: formData.workspaceName.toLowerCase().replace(/\s+/g, '-'), plan: 'free' },
-        'mock-jwt-token'
-      )
+    try {
+      const response = await apiClient.post('/auth/register', {
+        email: formData.email,
+        password: formData.password,
+        full_name: formData.fullName,
+        workspace_name: formData.workspaceName || 'My Workspace'
+      })
+      const data = response.data
+      setAuth(data.user, data.workspace, data.access_token)
       navigate('/dashboard')
-    }, 1000)
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.response?.data?.detail || 'Registration failed'
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -39,6 +49,8 @@ export default function RegisterPage() {
         </div>
         <h2 className="text-2xl font-bold text-center mb-2">Create Account</h2>
         <p className="text-muted-foreground text-center mb-8 text-sm">Start automating WhatsApp interactions</p>
+
+        {error && <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md mb-4 text-center">{error}</div>}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

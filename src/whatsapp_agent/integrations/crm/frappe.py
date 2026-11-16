@@ -33,14 +33,34 @@ class FrappeCRMProvider(CRMProvider):
         }
 
     async def get_customer_record(self, phone: str) -> dict[str, Any] | None:
-        """Fetch customer record from Frappe."""
+        """Fetch customer record from Frappe CRM (checks CRM Lead first, then Contact)."""
         if not self.base_url:
             return None
-        
-        url = f"{self.base_url}/api/resource/Customer"
+
+        import json
+        search_phone = phone[-10:] if len(phone) >= 10 else phone
+
+        # 1. Check CRM Lead first
+        lead_url = f"{self.base_url}/api/resource/CRM Lead"
+        lead_params = {
+            "filters": json.dumps([["mobile_no", "like", f"%{search_phone}%"]]),
+            "fields": json.dumps(["name"])
+        }
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(lead_url, headers=self._get_headers(), params=lead_params)
+                if resp.status_code == 200:
+                    records = resp.json().get("data", [])
+                    if records:
+                        return await self.get_lead(records[0]["name"])
+        except Exception as e:
+            logger.warning("frappe_get_customer_lead_lookup_failed", error=str(e))
+
+        # 2. Fallback to Contact DocType
+        url = f"{self.base_url}/api/resource/Contact"
         params = {
             "filters": f'[["mobile_no","=","{phone}"]]',
-            "fields": '["name","customer_name","email_id","customer_group"]'
+            "fields": '["name","first_name","last_name","email_id","mobile_no"]'
         }
         try:
             async with httpx.AsyncClient() as client:
@@ -54,15 +74,15 @@ class FrappeCRMProvider(CRMProvider):
         return None
 
     async def create_ticket(self, phone: str, issue_description: str, **kwargs: Any) -> str | None:
-        """Create an Issue in Frappe/ERPNext."""
+        """Create a Task/Ticket in Frappe CRM."""
         if not self.base_url:
             return None
             
-        url = f"{self.base_url}/api/resource/Issue"
+        url = f"{self.base_url}/api/resource/CRM Task"
         payload = {
-            "subject": f"WhatsApp Issue from {phone}",
+            "title": f"WhatsApp Issue from {phone}",
             "description": issue_description,
-            "raised_by": phone
+            "status": "Open"
         }
         try:
             async with httpx.AsyncClient() as client:
@@ -77,7 +97,7 @@ class FrappeCRMProvider(CRMProvider):
         if not self.base_url:
             return None
             
-        url = f"{self.base_url}/api/resource/Issue/{ticket_id}"
+        url = f"{self.base_url}/api/resource/CRM Task/{ticket_id}"
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self._get_headers())
@@ -91,20 +111,268 @@ class FrappeCRMProvider(CRMProvider):
         if not self.base_url:
             return None
             
-        url = f"{self.base_url}/api/resource/Lead"
-        payload = {
-            "first_name": name or "Unknown",
+        url = f"{self.base_url}/api/resource/CRM Lead"
+        parts = (name or "Unknown").strip().split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+
+        payload: dict[str, Any] = {
+            "first_name": first_name,
             "mobile_no": phone,
-            "email_id": email or ""
+            "email": email or "",
         }
+        org_val = kwargs.get("organization") or kwargs.get("company")
+        if org_val:
+            payload["organization"] = org_val
+        if kwargs.get("lead_owner"):
+            payload["lead_owner"] = kwargs["lead_owner"]
+        if last_name:
+            payload["last_name"] = last_name
+        # Only set status if it's one of Frappe CRM's valid statuses:
+        status_val = kwargs.get("status")
+        if status_val in ("New", "Qualified", "Converted", "Lost"):
+            payload["status"] = status_val
+        elif not status_val:
+            payload["status"] = "New"
+
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(url, headers=self._get_headers(), json=payload)
                 response.raise_for_status()
-                return response.json().get("data", {}).get("name")
+                lead_id = response.json().get("data", {}).get("name")
+                logger.info("frappe_create_lead_success", lead_id=lead_id, phone=phone)
+
+                # Sync Reason & Address FCRM Note
+                reason_val = (
+                    kwargs.get("reasons_to_reach_us") 
+                    or kwargs.get("reason_to_reach_us") 
+                    or kwargs.get("reason") 
+                    or kwargs.get("requirement") 
+                    or kwargs.get("notes")
+                )
+                address_val = kwargs.get("address") or kwargs.get("location")
+                if lead_id and (reason_val or address_val):
+                    try:
+                        await self._sync_lead_reason_note(client, lead_id, str(reason_val or ""), address=address_val)
+                    except Exception as ne:
+                        logger.warning("frappe_create_note_failed_on_new_lead", error=str(ne))
+
+                return lead_id
         except Exception as e:
             logger.error("frappe_create_lead_failed", error=str(e))
         return None
+
+    async def update_lead(self, lead_id: str | None = None, **kwargs: Any) -> bool:
+        """
+        Update an existing Lead record in Frappe CRM (or create it if it doesn't exist).
+        Supports updating Client Name, Email, Phone, Address, and Reasons to Reach Us (Requirements).
+        If lead_id is None, automatically resolves the lead by Phone number or creates a new lead.
+        """
+        if not self.base_url:
+            return False
+
+        phone_val = kwargs.get("phone") or kwargs.get("mobile_no")
+
+        # Resolve lead_id by phone if not explicitly provided
+        if not lead_id and phone_val:
+            import json
+            search_phone = phone_val[-10:] if len(phone_val) >= 10 else phone_val
+            search_url = f"{self.base_url}/api/resource/CRM Lead"
+            search_params = {"filters": json.dumps([["mobile_no", "like", f"%{search_phone}%"]])}
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    sr = await client.get(search_url, headers=self._get_headers(), params=search_params)
+                    if sr.status_code == 200:
+                        records = sr.json().get("data", [])
+                        if records:
+                            lead_id = records[0]["name"]
+                            logger.info("frappe_resolved_lead_by_phone", phone=phone_val, lead_id=lead_id)
+            except Exception as e:
+                logger.warning("frappe_phone_lookup_failed", phone=phone_val, error=str(e))
+
+        # Auto-create if lead does not exist in Frappe CRM yet (Upsert pattern)
+        if not lead_id:
+            if phone_val:
+                c_name = kwargs.get("client_name") or kwargs.get("name")
+                c_email = kwargs.get("email")
+                create_kwargs = {k: v for k, v in kwargs.items() if k not in ("phone", "mobile_no", "name", "client_name", "email")}
+                logger.info("frappe_auto_creating_new_lead", phone=phone_val, name=c_name)
+                lead_id = await self.create_lead(phone=phone_val, name=c_name, email=c_email, **create_kwargs)
+                return bool(lead_id)
+            else:
+                logger.warning("frappe_update_lead_no_id_or_phone", kwargs=kwargs)
+                return False
+
+        url = f"{self.base_url}/api/resource/CRM Lead/{lead_id}"
+        payload: dict[str, Any] = {}
+
+        # 1. Client Name
+        client_name = kwargs.get("client_name") or kwargs.get("name")
+        if client_name:
+            parts = str(client_name).strip().split(" ", 1)
+            payload["first_name"] = parts[0]
+            if len(parts) > 1:
+                payload["last_name"] = parts[1]
+        if "first_name" in kwargs and kwargs["first_name"]:
+            payload["first_name"] = kwargs["first_name"]
+        if "last_name" in kwargs and kwargs["last_name"]:
+            payload["last_name"] = kwargs["last_name"]
+
+        # 2. Email
+        if "email" in kwargs and kwargs["email"]:
+            payload["email"] = kwargs["email"]
+
+        # 3. Phone
+        phone_val = kwargs.get("phone") or kwargs.get("mobile_no")
+        if phone_val:
+            payload["mobile_no"] = phone_val
+            payload["phone"] = phone_val
+
+        # Additional CRM fields
+        if "company" in kwargs and kwargs["company"]:
+            payload["organization"] = kwargs["company"]
+        if "organization" in kwargs and kwargs["organization"]:
+            payload["organization"] = kwargs["organization"]
+        if "status" in kwargs and kwargs["status"]:
+            payload["status"] = kwargs["status"]
+        if "lead_score" in kwargs and kwargs["lead_score"] is not None:
+            payload["lead_score"] = kwargs["lead_score"]
+
+        ignored_keys = (
+            "name", "client_name", "company", "phone", "mobile_no", 
+            "qualification_score", "reasons_to_reach_us", "reason_to_reach_us", 
+            "reason", "requirement", "notes", "address", "location"
+        )
+        for k, v in kwargs.items():
+            if k not in payload and k not in ignored_keys:
+                payload[k] = v
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                if payload:
+                    response = await client.put(url, headers=self._get_headers(), json=payload)
+                    response.raise_for_status()
+                    logger.info("frappe_update_lead_success", lead_id=lead_id, updated_keys=list(payload.keys()))
+
+                # 4. Reasons to Reach Us and Address (stored as linked FCRM Note)
+                reason_val = (
+                    kwargs.get("reasons_to_reach_us") 
+                    or kwargs.get("reason_to_reach_us") 
+                    or kwargs.get("reason") 
+                    or kwargs.get("requirement") 
+                    or kwargs.get("notes")
+                )
+                address_val = kwargs.get("address") or kwargs.get("location")
+                if reason_val or address_val:
+                    await self._sync_lead_reason_note(client, lead_id, str(reason_val or ""), address=address_val)
+
+                return True
+        except Exception as e:
+            logger.error("frappe_update_lead_failed", lead_id=lead_id, error=str(e))
+            return False
+
+    async def _sync_lead_reason_note(self, client: httpx.AsyncClient, lead_id: str, reason_text: str, address: str | None = None) -> None:
+        """Create or update linked FCRM Note for reasons to reach us and address."""
+        import json
+        note_url = f"{self.base_url}/api/resource/FCRM Note"
+        params = {
+            "filters": json.dumps([["reference_docname", "=", lead_id]]),
+            "fields": json.dumps(["name", "title", "content"])
+        }
+        res = await client.get(note_url, headers=self._get_headers(), params=params)
+        existing_notes = res.json().get("data", []) if res.status_code == 200 else []
+
+        if address and reason_text:
+            formatted_content = f"<p>{reason_text}</p><p><b>Address / Location:</b> {address}</p>"
+        elif address:
+            formatted_content = f"<p><b>Address / Location:</b> {address}</p>"
+        else:
+            formatted_content = f"<p>{reason_text}</p>"
+
+        if existing_notes:
+            note_id = existing_notes[0]["name"]
+            update_url = f"{self.base_url}/api/resource/FCRM Note/{note_id}"
+            await client.put(
+                update_url,
+                headers=self._get_headers(),
+                json={"title": "Client Requirements & Address", "content": formatted_content}
+            )
+            logger.info("frappe_fcrm_note_updated", lead_id=lead_id, note_id=note_id)
+        else:
+            await client.post(
+                note_url,
+                headers=self._get_headers(),
+                json={
+                    "title": "Client Requirements & Address",
+                    "content": formatted_content,
+                    "reference_doctype": "CRM Lead",
+                    "reference_docname": lead_id,
+                }
+            )
+            logger.info("frappe_fcrm_note_created", lead_id=lead_id)
+
+        # Also post to the Lead Comment/Activity timeline so it is visible in the Activity and Comments tabs
+        try:
+            comment_url = f"{self.base_url}/api/resource/Comment"
+            comment_payload = {
+                "comment_type": "Comment",
+                "reference_doctype": "CRM Lead",
+                "reference_name": lead_id,
+                "content": formatted_content
+            }
+            await client.post(comment_url, headers=self._get_headers(), json=comment_payload)
+            logger.info("frappe_comment_synced", lead_id=lead_id)
+        except Exception as ce:
+            logger.warning("frappe_sync_comment_failed", error=str(ce))
+
+    async def get_lead(self, lead_id: str) -> dict[str, Any] | None:
+        """Fetch lead record from Frappe CRM by ID along with Reasons to Reach Us."""
+        import re
+        import json
+        if not self.base_url or not lead_id:
+            return None
+        url = f"{self.base_url}/api/resource/CRM Lead/{lead_id}"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=self._get_headers())
+                response.raise_for_status()
+                data = response.json().get("data", {})
+
+                # Standardize Client Name & Phone
+                first = data.get("first_name", "")
+                last = data.get("last_name", "")
+                data["client_name"] = f"{first} {last}".strip() or data.get("lead_name")
+                data["name"] = data["client_name"]
+                data["phone"] = data.get("mobile_no") or data.get("phone")
+
+                # Fetch linked Reasons to Reach Us from FCRM Note
+                note_url = f"{self.base_url}/api/resource/FCRM Note"
+                params = {
+                    "filters": json.dumps([["reference_docname", "=", lead_id]]),
+                    "fields": json.dumps(["name", "title", "content"])
+                }
+                note_res = await client.get(note_url, headers=self._get_headers(), params=params)
+                if note_res.status_code == 200:
+                    notes = note_res.json().get("data", [])
+                    if notes:
+                        raw_content = notes[0].get("content", "")
+                        clean_text = re.sub(r"<[^<]+?>", "", raw_content).strip()
+                        if "Address / Location:" in clean_text:
+                            parts = clean_text.split("Address / Location:", 1)
+                            req_clean = parts[0].replace("Project Requirements / Reason to Reach Us:", "").strip()
+                            addr_clean = parts[1].strip()
+                            data["reasons_to_reach_us"] = req_clean
+                            data["requirement"] = req_clean
+                            data["address"] = addr_clean
+                        else:
+                            clean_req = clean_text.replace("Project Requirements / Reason to Reach Us:", "").strip()
+                            data["reasons_to_reach_us"] = clean_req
+                            data["requirement"] = clean_req
+
+                return data
+        except Exception as e:
+            logger.error("frappe_get_lead_failed", lead_id=lead_id, error=str(e))
+            return None
 
     async def get_employee_details(self, employee_id: str) -> dict[str, Any] | None:
         if not self.base_url:

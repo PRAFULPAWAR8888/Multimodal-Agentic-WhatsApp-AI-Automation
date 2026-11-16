@@ -247,25 +247,31 @@ class BudgetTracker:
     _session_usage: dict[str, int] = defaultdict(int)
 
     @classmethod
-    def add_usage(cls, session_id: str, total_tokens: int) -> None:
+    def reset(cls) -> None:
+        """Reset all in-memory usage counters."""
+        cls._daily_usage.clear()
+        cls._session_usage.clear()
+
+    @classmethod
+    def add_usage(cls, session_id: str | None, total_tokens: int) -> None:
         today = datetime.utcnow().date()
         cls._daily_usage[today] += total_tokens
-        if session_id:
+        if session_id and session_id != "demo_session":
             cls._session_usage[session_id] += total_tokens
 
     @classmethod
-    def check_budgets(cls, session_id: str, estimated_tokens: int) -> None:
+    def check_budgets(cls, session_id: str | None, estimated_tokens: int) -> None:
         settings = get_settings()
         today = datetime.utcnow().date()
         
-        # Check Daily
-        if settings.llm_enable_cost_estimation:
+        # Check Daily only if explicit limit is configured
+        if getattr(settings, "llm_enable_daily_budget", False):
             current_daily = cls._daily_usage[today]
             if current_daily + estimated_tokens > settings.llm_max_tokens_per_day:
-                raise GovernanceError(f"Daily demo token budget exceeded ({current_daily} + {estimated_tokens} > {settings.llm_max_tokens_per_day}).")
+                raise GovernanceError(f"Daily token budget exceeded ({current_daily} + {estimated_tokens} > {settings.llm_max_tokens_per_day}).")
                 
-        # Check Session
-        if settings.llm_enable_session_budget and session_id:
+        # Check Session only if explicit real session_id is provided
+        if settings.llm_enable_session_budget and session_id and session_id != "demo_session":
             current_session = cls._session_usage[session_id]
             if current_session + estimated_tokens > settings.llm_max_tokens_per_session:
                 raise GovernanceError(f"Session token budget exceeded ({current_session} + {estimated_tokens} > {settings.llm_max_tokens_per_session}).")

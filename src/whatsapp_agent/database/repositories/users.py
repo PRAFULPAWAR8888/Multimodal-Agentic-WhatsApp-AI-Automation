@@ -38,7 +38,7 @@ class UserRepository:
         """Update last login timestamp for a user."""
         user = await self.get_by_id(user_id)
         if user:
-            user.last_login_at = datetime.now(timezone.utc)
+            user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await self.db.flush()
 
     async def exists_by_email(self, email: str) -> bool:

@@ -50,7 +50,7 @@ class MockCalendarProvider(CalendarProvider):
 
     async def book_appointment(
         self, date_str: str, time_str: str, name: str, phone: str, **kwargs: Any
-    ) -> bool:
+    ) -> dict[str, Any]:
         """Mock booking an appointment."""
         logger.info(
             "mock_calendar_book_appointment", 
@@ -66,19 +66,22 @@ class MockCalendarProvider(CalendarProvider):
         try:
             datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
-            return False
+            return {"success": False, "error": "Invalid date format"}
             
         if time_str not in self.standard_slots:
-            return False
+            return {"success": False, "error": "Invalid time slot"}
 
         if date_str not in self.bookings:
             self.bookings[date_str] = []
             
         if time_str in self.bookings[date_str]:
             # Already booked
-            return False
+            return {"success": False, "error": "Slot already booked"}
             
         # Successfully book
         self.bookings[date_str].append(time_str)
         
-        return True
+        return {
+            "success": True, 
+            "meet_link": "https://meet.google.com/mock-link-123"
+        }

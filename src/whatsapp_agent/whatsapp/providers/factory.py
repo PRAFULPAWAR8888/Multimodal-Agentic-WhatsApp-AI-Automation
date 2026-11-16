@@ -43,14 +43,9 @@ def _get_whatsapp_provider() -> WhatsAppProvider:
         return MockWhatsAppProvider(app_secret=settings.whatsapp_app_secret or "mock-secret")
 
     elif provider_type == WhatsAppProviderEnum.OFFICIAL:
-        # PLANNED: Phase 6 — Official WhatsApp Cloud API provider
-        # Requires: WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_SECRET
-        logger.warning(
-            "official_whatsapp_provider_not_yet_implemented",
-            fallback="MockWhatsAppProvider",
-        )
-        # Temporary fallback until official provider is implemented
-        return MockWhatsAppProvider(app_secret=settings.whatsapp_app_secret or "mock-secret")
+        from whatsapp_agent.whatsapp.providers.official import OfficialWhatsAppProvider
+        logger.info("whatsapp_provider_selected", provider="OfficialWhatsAppProvider")
+        return OfficialWhatsAppProvider()
 
     else:
         raise ConfigurationError(

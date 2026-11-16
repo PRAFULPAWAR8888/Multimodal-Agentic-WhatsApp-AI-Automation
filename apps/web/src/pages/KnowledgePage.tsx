@@ -1,7 +1,17 @@
-import { useState } from 'react'
-import { Upload, Link as LinkIcon, FileText, Database, Loader2, Trash2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Upload, Link as LinkIcon, FileText, Database, Loader2, Trash2, Globe } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { apiClient } from '../services/api'
+
+interface KnowledgeSource {
+  id: string
+  title: string
+  source_type: string
+  status: string
+  document_count: number
+  chunk_count: number
+  created_at: string
+}
 
 export default function KnowledgePage() {
   const { workspace } = useAuthStore()
@@ -10,10 +20,27 @@ export default function KnowledgePage() {
   const [file, setFile] = useState<File | null>(null)
   const [url, setUrl] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+  const [sources, setSources] = useState<KnowledgeSource[]>([])
+  const [loadingSources, setLoadingSources] = useState(true)
+
+  const fetchSources = async () => {
+    try {
+      const res = await apiClient.get('/knowledge/sources')
+      setSources(res.data || [])
+    } catch (err) {
+      console.error('Failed to fetch knowledge sources', err)
+    } finally {
+      setLoadingSources(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchSources()
+  }, [workspace])
 
   const handleFileUpload = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!file || !workspace?.id) return
+    if (!file) return
 
     setLoading(true)
     setMessage(null)
@@ -24,11 +51,11 @@ export default function KnowledgePage() {
       await apiClient.post(`/knowledge/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'X-Workspace-ID': workspace.id
         }
       })
       setMessage({ type: 'success', text: 'Document uploaded and is being processed by the AI.' })
       setFile(null)
+      fetchSources()
     } catch (err: any) {
       setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to upload document.' })
     } finally {
@@ -38,21 +65,29 @@ export default function KnowledgePage() {
 
   const handleUrlUpload = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!url || !workspace?.id) return
+    if (!url) return
 
     setLoading(true)
     setMessage(null)
 
     try {
-      await apiClient.post(`/knowledge/url`, { url }, {
-        headers: { 'X-Workspace-ID': workspace.id }
-      })
+      await apiClient.post(`/knowledge/url`, { url })
       setMessage({ type: 'success', text: 'URL submitted. The AI is crawling the content.' })
       setUrl('')
+      fetchSources()
     } catch (err: any) {
       setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to process URL.' })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDeleteSource = async (id: string) => {
+    try {
+      await apiClient.delete(`/knowledge/sources/${id}`)
+      setSources(prev => prev.filter(s => s.id !== id))
+    } catch (err) {
+      console.error('Failed to delete source', err)
     }
   }
 
@@ -151,30 +186,49 @@ export default function KnowledgePage() {
         <div className="bg-card border border-border rounded-xl shadow-sm p-6 flex flex-col h-full">
           <h2 className="text-lg font-bold border-b border-border pb-3 mb-4 flex items-center justify-between">
             Trained Sources
-            <span className="bg-primary/10 text-primary text-xs px-2 py-1 rounded-full font-medium">0 active</span>
+            <span className="bg-primary/10 text-primary text-xs px-2 py-1 rounded-full font-medium">
+              {sources.length} active
+            </span>
           </h2>
           
-          <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground py-10">
-            <Database className="h-12 w-12 mb-3 opacity-20" />
-            <p className="text-sm">No knowledge sources yet.</p>
-            <p className="text-xs mt-1">Upload a file or add a URL to train your AI.</p>
-          </div>
-          
-          {/* Example of a source row (hidden for now) */}
-          {/* <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg border border-border">
-              <div className="flex items-center gap-3 overflow-hidden">
-                <FileText className="h-4 w-4 text-primary shrink-0" />
-                <div className="truncate">
-                  <p className="text-sm font-medium truncate">Product_Catalog.pdf</p>
-                  <p className="text-xs text-muted-foreground">Processed today • 45 chunks</p>
-                </div>
-              </div>
-              <button className="text-muted-foreground hover:text-destructive p-1 transition-colors">
-                <Trash2 className="h-4 w-4" />
-              </button>
+          {loadingSources ? (
+            <div className="flex-1 flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          </div> */}
+          ) : sources.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground py-10">
+              <Database className="h-12 w-12 mb-3 opacity-20" />
+              <p className="text-sm">No knowledge sources yet.</p>
+              <p className="text-xs mt-1">Upload a file or add a URL to train your AI.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 overflow-y-auto max-h-[400px]">
+              {sources.map((src) => (
+                <div key={src.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg border border-border">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    {src.source_type === 'WEBSITE' ? (
+                      <Globe className="h-4 w-4 text-primary shrink-0" />
+                    ) : (
+                      <FileText className="h-4 w-4 text-primary shrink-0" />
+                    )}
+                    <div className="truncate">
+                      <p className="text-sm font-medium truncate">{src.title || 'Untitled Source'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {src.chunk_count} chunks • {src.status}
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => handleDeleteSource(src.id)}
+                    className="text-muted-foreground hover:text-destructive p-1 transition-colors"
+                    title="Delete source"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
       </div>

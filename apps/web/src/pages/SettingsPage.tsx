@@ -25,12 +25,11 @@ export default function SettingsPage() {
   })
 
   useEffect(() => {
-    if (!workspace?.id) return
-
     const fetchProfile = async () => {
       setLoading(true)
       try {
-        const response = await apiClient.get(`/workspaces/${workspace.id}`)
+        const wsId = workspace?.id || 'default'
+        const response = await apiClient.get(`/workspaces/${wsId}`)
         if (response.data.business_profile) {
           setFormData((prev) => ({
             ...prev,
@@ -59,14 +58,14 @@ export default function SettingsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!workspace?.id) return
+    const wsId = workspace?.id || 'default'
 
     setSaving(true)
     setError(null)
     setSuccessMsg(null)
 
     try {
-      await apiClient.patch(`/workspaces/${workspace.id}/business-profile`, formData)
+      await apiClient.patch(`/workspaces/${wsId}/business-profile`, formData)
       setSuccessMsg('Business profile saved successfully!')
       setTimeout(() => setSuccessMsg(null), 3000)
     } catch (err: any) {

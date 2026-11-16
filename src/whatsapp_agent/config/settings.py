@@ -62,6 +62,7 @@ class VisionProvider(str, Enum):
     MOONDREAM = "moondream"
     OPENAI_VISION = "openai_vision"
     OLLAMA_LLAVA = "ollama_llava"
+    QWEN = "qwen"
 
 
 class WhatsAppProvider(str, Enum):
@@ -212,6 +213,11 @@ class AppSettings(BaseSettings):
     # ── Vision ──────────────────────────────────────────────────────────────────
     vision_provider: VisionProvider = Field(default=VisionProvider.MOONDREAM)
     moondream_model: str = Field(default="vikhyatk/moondream2")
+    
+    # Qwen Vision
+    qwen_api_key: str = Field(default="")
+    qwen_base_url: str = Field(default="https://api.xkiro.com/v1")
+    qwen_model: str = Field(default="qwen/qwen3.8-max:free")
 
     # ── WhatsApp ────────────────────────────────────────────────────────────────
     whatsapp_provider: WhatsAppProvider = Field(default=WhatsAppProvider.MOCK)

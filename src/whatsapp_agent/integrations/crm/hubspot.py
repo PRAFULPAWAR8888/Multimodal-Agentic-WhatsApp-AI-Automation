@@ -115,6 +115,96 @@ class HubSpotCRMProvider(CRMProvider):
             logger.error("hubspot_create_lead_failed", error=str(e))
         return None
 
+    async def update_lead(self, lead_id: str, **kwargs: Any) -> bool:
+        """Update an existing HubSpot contact/lead."""
+        if not lead_id:
+            return False
+        url = f"{self.base_url}/crm/v3/objects/contacts/{lead_id}"
+        properties: dict[str, Any] = {}
+
+        # 1. Client Name
+        client_name = kwargs.get("client_name") or kwargs.get("name")
+        if client_name:
+            parts = str(client_name).strip().split(" ", 1)
+            properties["firstname"] = parts[0]
+            if len(parts) > 1:
+                properties["lastname"] = parts[1]
+        if "first_name" in kwargs and kwargs["first_name"]:
+            properties["firstname"] = kwargs["first_name"]
+        if "last_name" in kwargs and kwargs["last_name"]:
+            properties["lastname"] = kwargs["last_name"]
+
+        # 2. Email
+        if "email" in kwargs and kwargs["email"]:
+            properties["email"] = kwargs["email"]
+
+        # 3. Phone
+        phone_val = kwargs.get("phone") or kwargs.get("mobile_no")
+        if phone_val:
+            properties["phone"] = phone_val
+
+        if "company" in kwargs and kwargs["company"]:
+            properties["company"] = kwargs["company"]
+
+        # 4. Address
+        address_val = kwargs.get("address") or kwargs.get("location")
+        if address_val:
+            properties["address"] = str(address_val)
+
+        # 5. Reasons to Reach Us
+        reason_val = (
+            kwargs.get("reasons_to_reach_us") 
+            or kwargs.get("reason_to_reach_us") 
+            or kwargs.get("reason") 
+            or kwargs.get("requirement") 
+            or kwargs.get("notes")
+        )
+        if reason_val:
+            properties["message"] = str(reason_val)
+
+        ignored = (
+            "name", "client_name", "company", "phone", "first_name", 
+            "last_name", "mobile_no", "reasons_to_reach_us", "reason_to_reach_us", 
+            "reason", "requirement", "notes", "address", "location"
+        )
+        for k, v in kwargs.items():
+            if k not in properties and k not in ignored:
+                properties[k] = v
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.patch(url, headers=self._get_headers(), json={"properties": properties})
+                response.raise_for_status()
+                logger.info("hubspot_update_lead_success", lead_id=lead_id)
+                return True
+        except Exception as e:
+            logger.error("hubspot_update_lead_failed", lead_id=lead_id, error=str(e))
+            return False
+
+    async def get_lead(self, lead_id: str) -> dict[str, Any] | None:
+        """Retrieve HubSpot contact/lead."""
+        if not lead_id:
+            return None
+        url = f"{self.base_url}/crm/v3/objects/contacts/{lead_id}"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=self._get_headers())
+                response.raise_for_status()
+                data = response.json()
+                props = data.get("properties", {})
+                first = props.get("firstname", "")
+                last = props.get("lastname", "")
+                data["client_name"] = f"{first} {last}".strip()
+                data["name"] = data["client_name"]
+                data["email"] = props.get("email")
+                data["phone"] = props.get("phone")
+                data["reasons_to_reach_us"] = props.get("message")
+                data["requirement"] = props.get("message")
+                return data
+        except Exception as e:
+            logger.error("hubspot_get_lead_failed", lead_id=lead_id, error=str(e))
+            return None
+
     async def get_employee_details(self, employee_id: str) -> dict[str, Any] | None:
         logger.warning("hubspot_get_employee_details_not_supported")
         return None

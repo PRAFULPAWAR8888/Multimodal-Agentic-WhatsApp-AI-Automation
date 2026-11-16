@@ -71,7 +71,7 @@ class AgentState(TypedDict, total=False):
     """WhatsApp media ID if message contains media."""
 
     language_detected: str | None
-    """BCP-47 language code detected from content (e.g. 'en', 'hi', 'mr')."""
+    """Detected language and script (e.g. 'en', 'hi', 'Marathi', 'Hinglish', 'Hindi in Latin script')."""
 
     # ── Processed Input ────────────────────────────────────────────────────────
     effective_text: str | None

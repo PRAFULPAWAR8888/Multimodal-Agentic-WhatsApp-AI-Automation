@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
+import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { lazy } from 'react'
 import { AppLayout } from './components/layout/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -8,6 +8,9 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const PlaygroundPage = lazy(() => import('./pages/PlaygroundPage'))
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage'))
 const ConversationsPage = lazy(() => import('./pages/ConversationsPage'))
+const InboxPage = lazy(() => import('./pages/InboxPage'))
+const LeadsPage = lazy(() => import('./pages/LeadsPage'))
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 
@@ -53,11 +56,10 @@ export const router = createBrowserRouter([
       { path: 'playground', element: <PlaygroundPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'conversations', element: <ConversationsPage /> },
-      // Mock routes for others
-      { path: 'inbox', element: <div>Inbox (PLANNED)</div> },
+      { path: 'inbox', element: <InboxPage /> },
       { path: 'knowledge', element: <KnowledgePage /> },
-      { path: 'leads', element: <div>Leads (PLANNED)</div> },
-      { path: 'analytics', element: <div>Analytics (PLANNED)</div> },
+      { path: 'leads', element: <LeadsPage /> },
+      { path: 'analytics', element: <AnalyticsPage /> },
     ],
   },
   {

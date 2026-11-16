@@ -90,6 +90,63 @@ export interface ApiResponse<T> {
   data: T
 }
 
+export interface CrmLead {
+  id: string
+  workspace_id: string
+  name?: string
+  phone?: string
+  email?: string
+  company?: string
+  requirement?: string
+  product_interest?: string
+  budget?: string
+  timeline?: string
+  intent?: string
+  lead_score?: number
+  status: string
+  crm_contact_id?: string
+  crm_deal_id?: string
+  crm_synced_at?: string
+  qualified_at?: string
+  notes?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface LeadStats {
+  total_leads: number
+  qualified_leads: number
+  won_leads: number
+  new_leads: number
+  crm_synced_leads: number
+  avg_lead_score: number
+  status_breakdown: Record<string, number>
+  intent_breakdown: Record<string, number>
+}
+
+export interface AnalyticsOverview {
+  total_messages: number
+  inbound_messages: number
+  outbound_messages: number
+  total_conversations: number
+  active_conversations: number
+  ai_automation_rate: number
+  avg_response_time: string
+  total_leads: number
+  qualified_leads: number
+  won_leads: number
+  lead_conversion_rate: number
+  intent_distribution: Record<string, number>
+  agent_distribution: Record<string, number>
+  modality_distribution: Record<string, number>
+  daily_trend: Array<{
+    date: string
+    messages: number
+    ai_replies: number
+    leads: number
+  }>
+}
+
 export interface PaginatedResponse<T> {
   items: T[]
   total: number

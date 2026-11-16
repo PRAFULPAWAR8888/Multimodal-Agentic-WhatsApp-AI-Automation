@@ -27,7 +27,7 @@ from whatsapp_agent.config.settings import get_settings
 from whatsapp_agent.observability.logging import configure_logging, get_logger
 from whatsapp_agent.voice.stt.faster_whisper import get_stt_provider
 from whatsapp_agent.documents.ocr import get_ocr_provider
-from whatsapp_agent.vision.moondream import get_vision_provider
+from whatsapp_agent.vision import get_vision_provider
 from whatsapp_agent.whatsapp.providers.factory import get_whatsapp_provider
 from whatsapp_agent.database.models.whatsapp import (
     WhatsAppMessage, WhatsAppContact, WhatsAppConversation, WhatsAppAccount,
@@ -61,6 +61,13 @@ async def process_whatsapp_webhook(ctx: dict, message_dict: dict, phone_number_i
         if phone_number_id:
             acc_stmt = select(WhatsAppAccount).where(WhatsAppAccount.phone_number_id == phone_number_id)
             account = (await db.execute(acc_stmt)).scalar_one_or_none()
+            
+            # Fallback for development: update existing mock account with real ID
+            if not account:
+                account = (await db.execute(select(WhatsAppAccount).limit(1))).scalar_one_or_none()
+                if account:
+                    account.phone_number_id = phone_number_id
+                    await db.commit()
         else:
             account = (await db.execute(select(WhatsAppAccount).limit(1))).scalar_one_or_none()
             
@@ -69,7 +76,11 @@ async def process_whatsapp_webhook(ctx: dict, message_dict: dict, phone_number_i
             from whatsapp_agent.database.models.workspaces import Workspace
             workspace = (await db.execute(select(Workspace).limit(1))).scalar_one_or_none()
             if not workspace:
-                workspace = Workspace(name="Default Workspace", slug="default")
+                from whatsapp_agent.database.models.users import User
+                user = User(email="mock@example.com", hashed_password="mock", full_name="Mock User")
+                db.add(user)
+                await db.commit()
+                workspace = Workspace(name="Default Workspace", slug="default", owner_id=user.id)
                 db.add(workspace)
                 await db.commit()
             account = WhatsAppAccount(
@@ -97,9 +108,15 @@ async def process_whatsapp_webhook(ctx: dict, message_dict: dict, phone_number_i
         conversation = (await db.execute(conv_stmt)).scalar_one_or_none()
         if not conversation:
             conversation = WhatsAppConversation(
-                workspace_id=account.workspace_id, account_id=account.id, contact_id=contact.id
+                workspace_id=account.workspace_id, 
+                account_id=account.id, 
+                contact_id=contact.id,
+                message_count=0,
+                ai_message_count=0,
+                human_message_count=0
             )
             db.add(conversation)
+            await db.flush()
             
         # 4. Insert Message
         wamid = message_dict.get("id")
@@ -123,9 +140,11 @@ async def process_whatsapp_webhook(ctx: dict, message_dict: dict, phone_number_i
         elif msg_type == MessageType.IMAGE:
             modality = Modality.IMAGE
             media_id = message_dict.get("image", {}).get("id")
+            body = message_dict.get("image", {}).get("caption", "")
         elif msg_type == MessageType.DOCUMENT:
             modality = Modality.DOCUMENT
             media_id = message_dict.get("document", {}).get("id")
+            body = message_dict.get("document", {}).get("caption", "")
         else:
             body = message_dict.get("text", {}).get("body", "")
             
@@ -142,7 +161,7 @@ async def process_whatsapp_webhook(ctx: dict, message_dict: dict, phone_number_i
             media_id=media_id,
             is_voice_note=is_voice,
             status=MessageStatus.RECEIVED,
-            timestamp=datetime.fromtimestamp(int(message_dict.get("timestamp", time.time())), tz=timezone.utc)
+            timestamp=datetime.fromtimestamp(int(message_dict.get("timestamp", time.time())))
         )
         db.add(msg)
         
@@ -162,16 +181,20 @@ async def process_whatsapp_webhook(ctx: dict, message_dict: dict, phone_number_i
             return
             
         if modality == Modality.TEXT:
+            from whatsapp_agent.database.models.agents import AgentType
             # Enqueue agent directly
             agent_run = AgentRun(
                 id=uuid.uuid4(),
                 workspace_id=account.workspace_id,
+                conversation_id=conversation.id,
                 message_id=msg.id,
+                agent_type=AgentType.SUPERVISOR,
+                input_modality="TEXT",
                 status=AgentRunStatus.PENDING,
             )
             db.add(agent_run)
             await db.commit()
-            await redis.enqueue_job("run_agent", str(agent_run.id))
+            await redis.enqueue_job("run_agent", str(agent_run.id), _defer_by=5)
         elif modality == Modality.VOICE:
             await redis.enqueue_job("process_voice_message", str(msg.id))
         elif modality == Modality.IMAGE:
@@ -251,18 +274,22 @@ async def process_voice_message(ctx: dict, message_id: str) -> None:
 
             # 5. Enqueue Agent Run Task
             # Create the AgentRun record
+            from whatsapp_agent.database.models.agents import AgentType
             agent_run_id = uuid.uuid4()
             agent_run = AgentRun(
                 id=agent_run_id,
                 workspace_id=msg.workspace_id,
+                conversation_id=msg.conversation_id,
                 message_id=msg.id,
+                agent_type=AgentType.SUPERVISOR,
+                input_modality="VOICE",
                 status=AgentRunStatus.PENDING,
             )
             db.add(agent_run)
             await db.commit()
 
             # Enqueue the background agent execution
-            await ctx["redis"].enqueue_job("run_agent", str(agent_run_id))
+            await ctx["redis"].enqueue_job("run_agent", str(agent_run_id), _defer_by=5)
             logger.info(
                 "agent_run_enqueued_for_voice",
                 agent_run_id=str(agent_run_id),
@@ -350,16 +377,20 @@ async def process_image_message(ctx: dict, message_id: str) -> None:
 
             # 5. Enqueue Agent Run Task
             agent_run_id = uuid.uuid4()
+            from whatsapp_agent.database.models.agents import AgentType
             agent_run = AgentRun(
                 id=agent_run_id,
                 workspace_id=msg.workspace_id,
+                conversation_id=msg.conversation_id,
                 message_id=msg.id,
+                agent_type=AgentType.SUPERVISOR,
+                input_modality="IMAGE",
                 status=AgentRunStatus.PENDING,
             )
             db.add(agent_run)
             await db.commit()
 
-            await ctx["redis"].enqueue_job("run_agent", str(agent_run_id))
+            await ctx["redis"].enqueue_job("run_agent", str(agent_run_id), _defer_by=5)
 
         except Exception as e:
             logger.error("image_processing_failed", message_id=message_id, error=str(e), exc_info=e)
@@ -399,30 +430,34 @@ async def process_document_message(ctx: dict, message_id: str) -> None:
             document_bytes = await provider.download_media(msg.media_id)
 
             # 2. Extract Text
-            from whatsapp_agent.documents.parser import extract_pdf_text
-            extracted_text = await extract_pdf_text(document_bytes)
+            from whatsapp_agent.documents.parser import extract_document_text
+            extracted_text = await extract_document_text(document_bytes)
             
             # Bounds checking for text to prevent token explosion
             if len(extracted_text) > 3000:
                 extracted_text = extracted_text[:3000] + "... [TRUNCATED]"
                 
-            msg.body = extracted_text if extracted_text else "[Empty Document]"
+            msg.document_text = extracted_text if extracted_text else "[Empty Document]"
             await db.commit()
 
             logger.info("document_message_processed", message_id=message_id, text_length=len(extracted_text))
 
             # 3. Enqueue Agent Run Task
             agent_run_id = uuid.uuid4()
+            from whatsapp_agent.database.models.agents import AgentType
             agent_run = AgentRun(
                 id=agent_run_id,
                 workspace_id=msg.workspace_id,
+                conversation_id=msg.conversation_id,
                 message_id=msg.id,
+                agent_type=AgentType.SUPERVISOR,
+                input_modality="DOCUMENT",
                 status=AgentRunStatus.PENDING,
             )
             db.add(agent_run)
             await db.commit()
 
-            await ctx["redis"].enqueue_job("run_agent", str(agent_run_id))
+            await ctx["redis"].enqueue_job("run_agent", str(agent_run_id), _defer_by=5)
 
         except Exception as e:
             logger.error("document_processing_failed", message_id=message_id, error=str(e), exc_info=e)
@@ -478,7 +513,33 @@ async def run_agent(ctx: dict, agent_run_id: str) -> None:
 
         raw_text = message.body or ""
         transcription = message.transcription or ""
-        text_to_process = raw_text if raw_text else transcription
+        image_analysis = message.image_analysis or ""
+        document_text = message.document_text or ""
+        
+        if raw_text:
+            text_to_process = raw_text
+        elif transcription:
+            text_to_process = transcription
+        elif image_analysis:
+            text_to_process = image_analysis
+        elif document_text:
+            text_to_process = document_text
+        else:
+            text_to_process = "Empty message"
+
+        # Check for newer messages from the same contact in this conversation to debounce
+        newer_msg_stmt = select(WhatsAppMessage).where(
+            WhatsAppMessage.conversation_id == message.conversation_id,
+            WhatsAppMessage.contact_id == message.contact_id,
+            WhatsAppMessage.timestamp > message.timestamp
+        ).limit(1)
+        newer_msg = (await db.execute(newer_msg_stmt)).scalar_one_or_none()
+        
+        if newer_msg:
+            logger.info("debouncing_agent_run", reason="newer_message_arrived", agent_run_id=agent_run_id)
+            agent_run.status = AgentRunStatus.CANCELLED
+            await db.commit()
+            return
         
         # 1. Input Guard
         guard_result = InputSizeGuard.evaluate(text_to_process)
@@ -487,7 +548,7 @@ async def run_agent(ctx: dict, agent_run_id: str) -> None:
             # Update status to FAILED and return
             agent_run.status = AgentRunStatus.FAILED
             agent_run.error_message = guard_result.rejection_reason
-            agent_run.completed_at = datetime.now(timezone.utc)
+            agent_run.completed_at = datetime.now()
             await db.commit()
             # Note: We should ideally send a WhatsApp reply here, but for now we just fail the run.
             # A future phase would send `guard_result.rejection_reason` to the user via WhatsApp API.
@@ -511,9 +572,21 @@ async def run_agent(ctx: dict, agent_run_id: str) -> None:
         # Convert to dict format
         history_dicts = []
         # recent_messages is desc (newest first).
-        for m in recent_messages:
+        for m in reversed(recent_messages):
             role = "user" if m.direction == MessageDirection.INBOUND else "assistant"
-            content = m.body or m.transcription or ""
+            
+            content_parts = []
+            if m.body:
+                content_parts.append(m.body)
+            if m.transcription:
+                content_parts.append(f"[Voice Transcription]: {m.transcription}")
+            if m.document_text:
+                content_parts.append(f"[Document]: {m.document_text}")
+            if m.image_analysis:
+                content_parts.append(f"[Image Analysis]: {m.image_analysis}")
+                
+            content = "\n".join(content_parts).strip()
+            
             if content:
                 history_dicts.append({"role": role, "content": content})
                 
@@ -522,7 +595,7 @@ async def run_agent(ctx: dict, agent_run_id: str) -> None:
 
         # Update status to RUNNING
         agent_run.status = AgentRunStatus.RUNNING
-        agent_run.started_at = datetime.now(timezone.utc)
+        agent_run.started_at = datetime.now()
         await db.commit()
         
         # Build LangGraph state
@@ -530,8 +603,11 @@ async def run_agent(ctx: dict, agent_run_id: str) -> None:
             "workspace_id": str(agent_run.workspace_id),
             "message_id": str(message.id),
             "contact_wa_id": contact_wa_id,
+            "contact_name": (getattr(contact, "name", None) or getattr(contact, "profile_name", None)) if contact else None,
             "raw_text": processed_text,
             "transcription": transcription if guard_result.is_valid and guard_result.was_truncated == False else "",
+            "image_analysis": message.image_analysis or "",
+            "document_text": message.document_text or "",
             "input_modality": message.modality.value.lower() if message.modality else "text",
             "conversation_history": history_dicts
         }
@@ -548,7 +624,7 @@ async def run_agent(ctx: dict, agent_run_id: str) -> None:
             agent_run = result.scalar_one_or_none()
             if agent_run:
                 agent_run.status = AgentRunStatus.COMPLETED
-                agent_run.completed_at = datetime.now(timezone.utc)
+                agent_run.completed_at = datetime.now()
                 agent_run.intent_detected = result_state.get("intent")
                 if result_state.get("confidence_score") is not None:
                     agent_run.confidence_score = float(result_state.get("confidence_score"))
@@ -568,7 +644,7 @@ async def run_agent(ctx: dict, agent_run_id: str) -> None:
             agent_run = result.scalar_one_or_none()
             if agent_run:
                 agent_run.status = AgentRunStatus.FAILED
-                agent_run.completed_at = datetime.now(timezone.utc)
+                agent_run.completed_at = datetime.now()
                 agent_run.error_message = str(e)
                 agent_run.total_latency_ms = round((time.monotonic() - start_time) * 1000)
                 await db.commit()
@@ -612,11 +688,17 @@ async def ingest_knowledge_source(ctx: dict, source_id: str) -> None:
                 text_content = source.source_uri or ""
             elif source.source_type == KnowledgeSourceType.WEBSITE:
                 import httpx
-                # Very basic URL fetching, real prod would use a robust scraper
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(source.source_uri or "")
+                from bs4 import BeautifulSoup
+                # Robust URL fetching with redirects and User-Agent
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    resp = await client.get(
+                        source.source_uri or "", 
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                    )
                     resp.raise_for_status()
-                    text_content = resp.text
+                    # Strip HTML tags so the embeddings are clean
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    text_content = soup.get_text(separator="\n", strip=True)
             else:
                 text_content = f"Simulated content for {source.source_type.value}: {source.title}"
             
@@ -646,7 +728,7 @@ async def ingest_knowledge_source(ctx: dict, source_id: str) -> None:
             source.status = KnowledgeSourceStatus.ACTIVE
             source.document_count = 1
             source.chunk_count = len(chunks)
-            source.processed_at = datetime.now(timezone.utc)
+            source.processed_at = datetime.utcnow()
             source.content_hash = hashlib.sha256(text_content.encode('utf-8')).hexdigest()
             
             await db.commit()
@@ -690,21 +772,49 @@ async def sync_lead_to_crm(ctx: dict, lead_id: str) -> None:
 
         try:
             phone = lead.phone or "UnknownPhone"
+            status_val = "Qualified" if str(getattr(lead, "status", "")).upper().endswith("QUALIFIED") else None
             
-            # Sync to primary CRM (Frappe/HubSpot)
-            crm_id = await crm.create_lead(
-                phone=phone,
-                name=lead.name,
-                email=lead.email
-            )
-            
-            if crm_id:
-                lead.crm_contact_id = crm_id
-                lead.crm_synced_at = datetime.now(timezone.utc)
-                await db.commit()
-                logger.info("lead_synced_to_crm", lead_id=lead_id, crm_id=crm_id)
+            # If lead already synced to CRM, automatically update it
+            if lead.crm_contact_id:
+                success = await crm.update_lead(
+                    lead_id=lead.crm_contact_id,
+                    name=lead.name,
+                    client_name=lead.name,
+                    email=lead.email,
+                    phone=phone,
+                    company=lead.company,
+                    reasons_to_reach_us=lead.requirement,
+                    requirement=lead.requirement,
+                    lead_score=lead.lead_score,
+                    status=status_val
+                )
+                if success:
+                    lead.crm_synced_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    logger.info("lead_updated_in_crm", lead_id=lead_id, crm_id=lead.crm_contact_id)
+                else:
+                    logger.warning("lead_update_in_crm_failed", lead_id=lead_id, crm_id=lead.crm_contact_id)
             else:
-                logger.warning("lead_sync_failed_no_id", lead_id=lead_id)
+                # Sync new lead to primary CRM (Frappe/HubSpot/Mock)
+                crm_id = await crm.create_lead(
+                    phone=phone,
+                    name=lead.name,
+                    client_name=lead.name,
+                    email=lead.email,
+                    company=lead.company,
+                    reasons_to_reach_us=lead.requirement,
+                    requirement=lead.requirement,
+                    lead_score=lead.lead_score,
+                    status=status_val
+                )
+                
+                if crm_id:
+                    lead.crm_contact_id = crm_id
+                    lead.crm_synced_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    logger.info("lead_synced_to_crm", lead_id=lead_id, crm_id=crm_id)
+                else:
+                    logger.warning("lead_sync_failed_no_id", lead_id=lead_id)
                 
             # SIMULTANEOUSLY Sync to Adobe Experience Cloud (Marketo Engage)
             # Pushes the behavioral lead score generated by the AI

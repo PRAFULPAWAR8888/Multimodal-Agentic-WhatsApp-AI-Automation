@@ -90,3 +90,6 @@ node_modules/
 # Media and Models
 media/
 models/
+*.wav
+google_calendar_token.json
+*token*.json

@@ -13,24 +13,24 @@ ALGORITHM = "HS256"
 def create_access_token(subject: str, extra_claims: dict | None = None) -> str:
     """Create a new access token for a given subject."""
     settings = get_settings()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode = {"sub": subject, "exp": expire, "type": "access"}
     if extra_claims:
         to_encode.update(extra_claims)
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 
 def create_refresh_token(subject: str) -> str:
     """Create a new refresh token for a given subject."""
     settings = get_settings()
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
     to_encode = {"sub": subject, "exp": expire, "type": "refresh"}
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 
 def decode_token(token: str) -> dict[str, Any]:
     """Decode and validate a JWT token."""
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
         return payload
     except ExpiredSignatureError as e:
         raise TokenExpiredError("Token has expired") from e

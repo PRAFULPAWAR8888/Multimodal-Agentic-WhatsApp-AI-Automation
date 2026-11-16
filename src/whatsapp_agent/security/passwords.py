@@ -1,16 +1,23 @@
 """
-Password hashing utilities using passlib with bcrypt.
+Password hashing utilities using bcrypt.
 
 Never store or log plaintext passwords. Always hash before storing.
 """
-from passlib.context import CryptContext
-
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+import bcrypt
 
 def hash_password(plain_password: str) -> str:
     """Hash a plaintext password. Returns a bcrypt hash string."""
-    return _pwd_context.hash(plain_password)
+    pw_bytes = plain_password.encode("utf-8")[:72]
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(pw_bytes, salt).decode("utf-8")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plaintext password against a stored bcrypt hash."""
-    return _pwd_context.verify(plain_password, hashed_password)
+    if not hashed_password or not plain_password:
+        return False
+    try:
+        pw_bytes = plain_password.encode("utf-8")[:72]
+        hash_bytes = hashed_password.encode("utf-8")
+        return bcrypt.checkpw(pw_bytes, hash_bytes)
+    except Exception:
+        return False

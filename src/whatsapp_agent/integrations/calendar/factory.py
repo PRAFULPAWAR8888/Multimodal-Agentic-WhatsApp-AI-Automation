@@ -28,7 +28,11 @@ def get_calendar_provider() -> CalendarProvider:
 
     settings = get_settings()
 
-    if settings.calendar_provider == ProviderEnum.MOCK:
+    if settings.calendar_provider == ProviderEnum.GOOGLE:
+        from whatsapp_agent.integrations.calendar.google import GoogleCalendarProvider
+        logger.info("initializing_google_calendar_provider")
+        _provider_instance = GoogleCalendarProvider()
+    elif settings.calendar_provider == ProviderEnum.MOCK:
         logger.info("initializing_mock_calendar_provider")
         _provider_instance = MockCalendarProvider()
     else:

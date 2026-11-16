@@ -58,6 +58,8 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    user: Optional[UserResponse] = None
+    workspace: Optional[WorkspaceResponse] = None
 
 class RefreshRequest(BaseModel):
     refresh_token: str
@@ -110,10 +112,36 @@ async def login(
     """
     auth_service = AuthService(db)
     tokens = await auth_service.login(request.email, request.password)
+    user = await auth_service.user_repo.get_by_email(request.email)
+    
+    from sqlalchemy import select
+    from whatsapp_agent.database.models import Workspace, WorkspaceMember
+    ws_stmt = (
+        select(Workspace)
+        .join(WorkspaceMember, Workspace.id == WorkspaceMember.workspace_id)
+        .where(WorkspaceMember.user_id == user.id)
+        .limit(1)
+    )
+    workspace = (await db.execute(ws_stmt)).scalar_one_or_none()
+    if not workspace:
+        workspace = (await db.execute(select(Workspace).limit(1))).scalar_one_or_none()
+
     return TokenResponse(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
-        token_type=tokens.token_type
+        token_type=tokens.token_type,
+        user=UserResponse(
+            id=str(user.id),
+            email=user.email,
+            full_name=user.full_name,
+            is_active=user.is_active,
+            created_at=user.created_at
+        ) if user else None,
+        workspace=WorkspaceResponse(
+            id=str(workspace.id),
+            name=workspace.name,
+            slug=workspace.slug
+        ) if workspace else None
     )
 
 @router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
@@ -132,18 +160,38 @@ async def refresh_tokens(
         token_type=tokens.token_type
     )
 
-@router.get("/me", response_model=UserResponse, summary="Get current user profile")
-async def get_me(current_user: User = Depends(get_current_user)):
+@router.get("/me", summary="Get current user profile")
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
     """
     Get profile information for the currently authenticated user.
     """
-    return UserResponse(
-        id=str(current_user.id),
-        email=current_user.email,
-        full_name=current_user.full_name,
-        is_active=current_user.is_active,
-        created_at=current_user.created_at
+    from sqlalchemy import select
+    from whatsapp_agent.database.models import Workspace, WorkspaceMember
+    ws_stmt = (
+        select(Workspace)
+        .join(WorkspaceMember, Workspace.id == WorkspaceMember.workspace_id)
+        .where(WorkspaceMember.user_id == current_user.id)
+        .limit(1)
     )
+    workspace = (await db.execute(ws_stmt)).scalar_one_or_none()
+    if not workspace:
+        workspace = (await db.execute(select(Workspace).limit(1))).scalar_one_or_none()
+
+    return {
+        "id": str(current_user.id),
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "is_active": current_user.is_active,
+        "created_at": current_user.created_at,
+        "workspace": {
+            "id": str(workspace.id),
+            "name": workspace.name,
+            "slug": workspace.slug
+        } if workspace else None
+    }
 
 @router.post("/logout", summary="Log out user")
 async def logout(current_user: User = Depends(get_current_user)):

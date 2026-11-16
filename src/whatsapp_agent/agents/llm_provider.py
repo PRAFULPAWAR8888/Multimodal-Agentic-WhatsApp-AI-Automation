@@ -376,7 +376,11 @@ class FallbackLLMProvider(BaseLLMProvider):
             return await self.primary.complete(system_prompt, user_message, conversation_history, temperature, max_tokens, response_format)
         except Exception as e:
             logger.warning("primary_llm_failed_using_fallback", error=str(e))
-            return await self.fallback.complete(system_prompt, user_message, conversation_history, temperature, max_tokens, response_format)
+            try:
+                return await self.fallback.complete(system_prompt, user_message, conversation_history, temperature, max_tokens, response_format)
+            except Exception as fb_err:
+                logger.error("fallback_llm_also_failed", error=str(fb_err))
+                raise e
 
     async def complete_json(
         self,
@@ -388,7 +392,11 @@ class FallbackLLMProvider(BaseLLMProvider):
             return await self.primary.complete_json(system_prompt, user_message, conversation_history)
         except Exception as e:
             logger.warning("primary_llm_failed_using_fallback", error=str(e))
-            return await self.fallback.complete_json(system_prompt, user_message, conversation_history)
+            try:
+                return await self.fallback.complete_json(system_prompt, user_message, conversation_history)
+            except Exception as fb_err:
+                logger.error("fallback_llm_also_failed", error=str(fb_err))
+                raise e
 
     async def complete_with_tools(
         self,
@@ -401,7 +409,11 @@ class FallbackLLMProvider(BaseLLMProvider):
             return await self.primary.complete_with_tools(system_prompt, user_message, tools, conversation_history)
         except Exception as e:
             logger.warning("primary_llm_failed_using_fallback", error=str(e))
-            return await self.fallback.complete_with_tools(system_prompt, user_message, tools, conversation_history)
+            try:
+                return await self.fallback.complete_with_tools(system_prompt, user_message, tools, conversation_history)
+            except Exception as fb_err:
+                logger.error("fallback_llm_also_failed", error=str(fb_err))
+                raise e
 
 
 class MockLLMProvider(BaseLLMProvider):
@@ -500,13 +512,13 @@ class LLMGateway(BaseLLMProvider):
             logger.error("budget_exceeded", estimated=total_estimated, budget=budget)
             raise GovernanceError(f"Request exceeds token budget ({total_estimated} > {budget}). Reduce context or input.")
             
-        # Also check global/session budgets
-        BudgetTracker.check_budgets("demo_session", total_estimated)
+        # Also check global/session budgets if session_id is configured
+        BudgetTracker.check_budgets(None, total_estimated)
         
     def _record_usage(self, usage: LLMUsage) -> None:
         from whatsapp_agent.core.governance import BudgetTracker
         if usage:
-            BudgetTracker.add_usage("demo_session", usage.total_tokens)
+            BudgetTracker.add_usage(None, usage.total_tokens)
 
     async def complete(
         self,

@@ -1,7 +1,7 @@
 import uuid
-from typing import Optional, Any
+from typing import Optional, Any, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request
-from sqlalchemy import select
+from sqlalchemy import select, desc, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from datetime import datetime
@@ -52,6 +52,7 @@ async def submit_website_url(
     )
 
 @router.post("/document", response_model=KnowledgeSourceResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/upload", response_model=KnowledgeSourceResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     req: Request,
     file: UploadFile = File(...),
@@ -66,6 +67,37 @@ async def upload_document(
         title=title,
         workspace_id=workspace_member.workspace_id
     )
+
+@router.get("/sources", response_model=List[KnowledgeSourceResponse])
+async def list_knowledge_sources(
+    workspace_member: WorkspaceMember = Depends(get_default_workspace_member),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """List all knowledge sources for the current workspace."""
+    stmt = (
+        select(KnowledgeSource)
+        .where(KnowledgeSource.workspace_id == workspace_member.workspace_id)
+        .order_by(desc(KnowledgeSource.created_at))
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+@router.delete("/sources/{source_id}")
+async def delete_knowledge_source(
+    source_id: uuid.UUID,
+    workspace_member: WorkspaceMember = Depends(get_default_workspace_member),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Delete a knowledge source and associated chunks."""
+    from whatsapp_agent.database.models.knowledge import DocumentChunk
+    
+    await db.execute(delete(DocumentChunk).where(DocumentChunk.source_id == source_id))
+    await db.execute(
+        delete(KnowledgeSource)
+        .where(KnowledgeSource.id == source_id, KnowledgeSource.workspace_id == workspace_member.workspace_id)
+    )
+    await db.commit()
+    return {"status": "deleted"}
 
 @router.get("/{source_id}", response_model=KnowledgeSourceResponse)
 async def get_knowledge_source_status(

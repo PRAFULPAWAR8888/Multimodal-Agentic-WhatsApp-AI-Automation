@@ -43,7 +43,7 @@ class VectorRetriever:
         query: str,
         workspace_id: str,
         top_k: int = 5,
-        min_score: float = 0.3,
+        min_score: float = 0.1,
     ) -> list[RetrievedChunk]:
         """
         Retrieve top-k most relevant chunks for a query within a workspace.
@@ -69,13 +69,13 @@ class VectorRetriever:
         # 2. Query pgvector using cosine similarity
         sql = text("""
             SELECT c.id, c.source_id, c.content, c.metadata_json, c.chunk_index,
-                   1 - (c.embedding <=> :query_vector::vector) AS score,
+                   1 - (c.embedding <=> CAST(:query_vector AS vector)) AS score,
                    s.title AS source_title
             FROM document_chunks c
             JOIN knowledge_sources s ON c.source_id = s.id
             WHERE c.workspace_id = :workspace_id
               AND c.embedding IS NOT NULL
-            ORDER BY c.embedding <=> :query_vector::vector
+            ORDER BY c.embedding <=> CAST(:query_vector AS vector)
             LIMIT :top_k
         """)
         

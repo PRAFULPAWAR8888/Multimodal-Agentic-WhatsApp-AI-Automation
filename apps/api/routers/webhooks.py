@@ -6,6 +6,7 @@ Handles WhatsApp Cloud API webhook verification and incoming messages.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -22,6 +23,29 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 router = APIRouter(prefix="/webhooks/whatsapp")
+
+
+async def handle_inbound_whatsapp_call(call_event: dict[str, Any], phone_number_id: str | None) -> None:
+    """
+    Handle incoming WhatsApp Calling API signaling event.
+    
+    When a customer calls the business number via WhatsApp, Meta sends an event: "connect"
+    with the call_id and SDP offer.
+    """
+    call_id = call_event.get("id")
+    call_action = call_event.get("event")
+    caller = call_event.get("from")
+    logger.info("processing_inbound_whatsapp_call_event", call_id=call_id, call_action=call_action, caller=caller)
+
+    if not call_id:
+        return
+
+    try:
+        from whatsapp_agent.calling.whatsapp_call_manager import get_call_manager
+        call_mgr = get_call_manager()
+        await call_mgr.handle_inbound_call(call_event, phone_number_id)
+    except Exception as e:
+        logger.error("error_dispatching_whatsapp_call", call_id=call_id, error=str(e))
 
 
 async def enqueue_webhook_processing(
@@ -97,18 +121,50 @@ async def handle_webhook(
             detail="Invalid webhook payload format",
         )
 
-    # 5. For each message in payload.messages: log the message type
-    # 6. Enqueue ARQ task for each message
-    phone_number_id = payload.phone_number_id
+    # 5. Extract phone_number_id with fallback to settings
+    phone_number_id = payload.phone_number_id or settings.whatsapp_phone_number_id or os.getenv("WHATSAPP_PHONE_NUMBER_ID")
     
     redis_pool = getattr(request.app.state, "redis_pool", None)
     
+    # Log incoming change fields
+    for entry in payload_dict.get("entry", []):
+        for change in entry.get("changes", []):
+            logger.info("webhook_change_received", field=change.get("field"))
+
     for status_update in payload.status_updates:
         logger.info("webhook_status_update_received", message_id=status_update.id, status=status_update.status)
 
     for message in payload.messages:
         logger.info("webhook_message_received", message_id=message.id, type=message.type)
         await enqueue_webhook_processing(message, phone_number_id, redis_pool)
+
+    # Collect all calling events (via model or raw payload fallback)
+    call_events = list(payload.calls)
+    if not call_events:
+        for entry in payload_dict.get("entry", []):
+            for change in entry.get("changes", []):
+                field = change.get("field")
+                val = change.get("value", {})
+                if field in ("calls", "call"):
+                    if isinstance(val, dict):
+                        if "calls" in val and isinstance(val["calls"], list):
+                            call_events.extend(val["calls"])
+                        elif "call" in val and isinstance(val["call"], dict):
+                            call_events.append(val["call"])
+                        else:
+                            call_events.append(val)
+                elif isinstance(val, dict) and "calls" in val and isinstance(val["calls"], list):
+                    call_events.extend(val["calls"])
+
+    for call_event in call_events:
+        logger.info(
+            "webhook_call_event_received",
+            call_id=call_event.get("id"),
+            call_action=call_event.get("event"),
+            direction=call_event.get("direction"),
+            caller=call_event.get("from"),
+        )
+        asyncio.create_task(handle_inbound_whatsapp_call(call_event, phone_number_id))
 
     # 4. Return HTTP 200 IMMEDIATELY (within 3 seconds SLA)
     return {"status": "received"}

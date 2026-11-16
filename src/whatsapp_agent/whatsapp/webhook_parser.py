@@ -14,7 +14,7 @@ class WhatsAppProfile(BaseModel):
     name: str
 
 class WhatsAppContact(BaseModel):
-    profile: WhatsAppProfile
+    profile: WhatsAppProfile | None = None
     wa_id: str
 
 class TextContent(BaseModel):
@@ -89,11 +89,14 @@ class MessageStatusUpdate(BaseModel):
 
 class WebhookValue(BaseModel):
     """The 'value' field inside each webhook change entry."""
-    messaging_product: str
-    metadata: dict[str, str]
+    messaging_product: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     contacts: list[WhatsAppContact] = []
     messages: list[InboundMessage] = []
     statuses: list[MessageStatusUpdate] = []
+    calls: list[dict[str, Any]] = []
+
+    model_config = {'extra': 'allow'}
 
 class WebhookChange(BaseModel):
     field: str
@@ -129,10 +132,33 @@ class WhatsAppWebhookPayload(BaseModel):
         return updates
 
     @property
-    def phone_number_id(self) -> str | None:
-        """Extract the receiving phone_number_id from metadata."""
+    def calls(self) -> list[dict[str, Any]]:
+        """Flatten all calling events from changes."""
+        call_events = []
         for entry in self.entry:
             for change in entry.changes:
-                if change.field == 'messages':
-                    return change.value.metadata.get('phone_number_id')
-        return None
+                val = change.value
+                val_extra = getattr(val, "__pydantic_extra__", {}) or {}
+                if val.calls:
+                    call_events.extend(val.calls)
+                elif "calls" in val_extra and isinstance(val_extra["calls"], list):
+                    call_events.extend(val_extra["calls"])
+                elif "call" in val_extra and isinstance(val_extra["call"], dict):
+                    call_events.append(val_extra["call"])
+                elif "call" in val_extra and isinstance(val_extra["call"], list):
+                    call_events.extend(val_extra["call"])
+                elif change.field in ('calls', 'call'):
+                    val_dict = val.model_dump()
+                    if "id" in val_dict or "event" in val_dict or "session" in val_dict or "sdp" in val_dict:
+                        call_events.append(val_dict)
+        return call_events
+
+    @property
+    def phone_number_id(self) -> str | None:
+        """Extract the receiving phone_number_id from metadata."""
+        import os
+        for entry in self.entry:
+            for change in entry.changes:
+                if change.value.metadata and 'phone_number_id' in change.value.metadata:
+                    return str(change.value.metadata.get('phone_number_id'))
+        return os.getenv("WHATSAPP_PHONE_NUMBER_ID")

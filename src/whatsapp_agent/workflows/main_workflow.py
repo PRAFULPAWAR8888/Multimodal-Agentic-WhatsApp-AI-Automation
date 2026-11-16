@@ -52,15 +52,40 @@ logger = get_logger(__name__)
 async def deterministic_agent_node(state: AgentState) -> AgentState:
     """Handles fast rule-based responses bypassing the LLM entirely."""
     intent = state.get("intent")
-    response_text = "Hello! How can I help you today?"
-    
+    text_lower = (state.get("effective_text") or "").strip().lower()
+    profile = state.get("business_profile") or {}
+    persona = profile.get("ai_persona_name") or "AI Assistant"
+    business = profile.get("business_name")
+    use_emoji = profile.get("ai_use_emoji", True)
+
+    emoji = " 😊" if use_emoji else ""
+    business_intro = f" I am {persona} from {business}." if (business and business not in ["Our Business", "Default Workspace"]) else ""
+
+    # Default English responses
+    response_text = f"Hello!{business_intro} How can I assist you today?{emoji}"
+
     if intent == "greeting":
-        response_text = "Hello! How can I assist you today?"
+        if text_lower in {"namaste"}:
+            response_text = f"Namaste!{business_intro} How can I assist you today? (नमस्ते! मैं आपकी कैसे मदद कर सकता हूँ?){emoji}"
+        elif text_lower in {"hola"}:
+            response_text = f"¡Hola!{business_intro} ¿Cómo puedo ayudarte hoy?{emoji}"
+        else:
+            response_text = f"Hello!{business_intro} How can I assist you today?{emoji}"
     elif intent == "thanks":
-        response_text = "You're welcome! Let me know if you need anything else."
+        if text_lower in {"dhanyawad", "shukriya"}:
+            response_text = f"You're welcome! Let me know if you need anything else from {business or 'us'}. (आपका स्वागत है!){emoji}"
+        elif text_lower in {"gracias"}:
+            response_text = f"¡De nada! Déjame saber si necesitas algo más.{emoji}"
+        else:
+            response_text = f"You're welcome! Let me know if you need anything else.{emoji}"
     elif intent == "bye":
-        response_text = "Goodbye! Have a great day!"
-        
+        if text_lower in {"alvida", "phir milenge"}:
+            response_text = f"Goodbye! Have a great day! (अलविदा!){emoji}"
+        elif text_lower in {"adios", "chao"}:
+            response_text = f"¡Adiós! ¡Que tengas un buen día!{emoji}"
+        else:
+            response_text = f"Goodbye! Have a great day from {business or 'us'}!{emoji}"
+
     return {
         **state,
         "response_text": response_text
@@ -98,6 +123,13 @@ async def load_business_profile_node(state: AgentState) -> AgentState:
             logger.error("failed_to_load_business_profile", error=str(e))
             profile = None
 
+        if not profile:
+            from sqlalchemy import select
+            from whatsapp_agent.database.models import Workspace
+            default_ws = (await db.execute(select(Workspace).limit(1))).scalar_one_or_none()
+            if default_ws:
+                profile = await repo.get_business_profile(default_ws.id)
+
     if not profile:
         profile = {
             "business_name": "Our Business",
@@ -130,20 +162,25 @@ async def retrieve_context_node(state: AgentState) -> AgentState:
     from whatsapp_agent.rag.retrieval.vector_retriever import VectorRetriever
 
     workspace_id = state.get("workspace_id")
-    query = state.get("effective_text") or state.get("raw_text") or ""
+    # For RAG query, use user's explicit question or first 300 chars to prevent embedding explosion
+    query = (state.get("raw_text") or state.get("effective_text") or "").strip()[:300]
     
-    if not workspace_id or not query.strip():
+    if not workspace_id or not query:
         return {**state, "rag_context": []}
 
     factory = _get_session_factory()
     chunks = []
     try:
+        import asyncio
         async with factory() as db:
             retriever = VectorRetriever(db)
-            chunks = await retriever.retrieve_for_agent(
-                query=query, 
-                workspace_id=workspace_id,
-                top_k=5
+            chunks = await asyncio.wait_for(
+                retriever.retrieve_for_agent(
+                    query=query, 
+                    workspace_id=workspace_id,
+                    top_k=5
+                ),
+                timeout=4.0
             )
     except Exception as e:
         logger.error("rag_retrieval_failed", error=str(e), workspace_id=workspace_id)
@@ -176,6 +213,17 @@ async def send_response_node(state: AgentState) -> AgentState:
             contact=contact_wa_id,
         )
         return state
+
+    if contact_wa_id in ["playground_user", "test_user"] or not contact_wa_id.replace("+", "").isdigit():
+        logger.info(
+            "playground_or_test_response_skip_send",
+            workspace_id=workspace_id,
+            contact=contact_wa_id,
+            response_length=len(response_text)
+        )
+        return state
+
+
 
     try:
         provider = get_whatsapp_provider()
@@ -244,7 +292,7 @@ async def send_response_node(state: AgentState) -> AgentState:
                         modality=Modality.TEXT,
                         body=response_text,
                         status=MessageStatus.SENT,
-                        timestamp=datetime.now(timezone.utc)
+                        timestamp=datetime.now()
                     )
                     db.add(outbound_msg)
                     

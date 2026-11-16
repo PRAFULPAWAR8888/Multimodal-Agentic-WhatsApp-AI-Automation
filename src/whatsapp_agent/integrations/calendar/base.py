@@ -30,7 +30,7 @@ class CalendarProvider(ABC):
     @abstractmethod
     async def book_appointment(
         self, date_str: str, time_str: str, name: str, phone: str, **kwargs: Any
-    ) -> bool:
+    ) -> dict[str, Any]:
         """
         Book an appointment on the calendar.
         
@@ -41,6 +41,6 @@ class CalendarProvider(ABC):
             phone: Customer's phone number.
             
         Returns:
-            True if booking was successful, False otherwise.
+            Dictionary containing 'success' boolean, and optionally 'meet_link' string.
         """
         pass

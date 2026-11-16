@@ -1,30 +1,49 @@
-import { MessageSquare, Bot, Users, Timer } from 'lucide-react'
+import { MessageSquare, Bot, Users, Timer, ArrowRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getConversations, type Conversation } from '../services/conversations'
+import { apiClient } from '../services/api'
+
 export default function DashboardPage() {
-  const stats = [
-    { label: 'Total Conversations', value: '1,248', trend: '+12%', icon: MessageSquare, color: 'text-blue-500', border: 'border-blue-500/20' },
-    { label: 'AI Resolved', value: '892', trend: '+24%', icon: Bot, color: 'text-whatsapp', border: 'border-whatsapp/20' },
-    { label: 'Leads Captured', value: '156', trend: '+8%', icon: Users, color: 'text-purple-500', border: 'border-purple-500/20' },
-    { label: 'Response Time', value: '1.2s', trend: '-5%', icon: Timer, color: 'text-orange-500', border: 'border-orange-500/20' },
-  ]
+  const navigate = useNavigate()
+  const [statsData, setStatsData] = useState({
+    total_conversations: 0,
+    ai_resolved: 0,
+    leads_captured: 0,
+    avg_response_time: '1.2s'
+  })
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchConversations = async () => {
+    const fetchData = async () => {
       try {
-        const data = await getConversations()
-        setConversations(data)
+        const [convs, statsRes] = await Promise.allSettled([
+          getConversations(),
+          apiClient.get('/conversations/stats')
+        ])
+        if (convs.status === 'fulfilled') {
+          setConversations(convs.value)
+        }
+        if (statsRes.status === 'fulfilled' && statsRes.value?.data) {
+          setStatsData(statsRes.value.data)
+        }
       } catch (error) {
-        console.error('Failed to fetch conversations', error)
+        console.error('Failed to fetch dashboard data', error)
       } finally {
         setLoading(false)
       }
     }
-    fetchConversations()
+    fetchData()
   }, [])
+
+  const stats = [
+    { label: 'Total Conversations', value: statsData.total_conversations.toLocaleString(), trend: 'Live', icon: MessageSquare, color: 'text-blue-500', border: 'border-blue-500/20' },
+    { label: 'AI Handled', value: statsData.ai_resolved.toLocaleString(), trend: 'Auto', icon: Bot, color: 'text-whatsapp', border: 'border-whatsapp/20' },
+    { label: 'Leads Captured', value: statsData.leads_captured.toLocaleString(), trend: 'CRM', icon: Users, color: 'text-purple-500', border: 'border-purple-500/20' },
+    { label: 'Avg Latency', value: statsData.avg_response_time, trend: 'Fast', icon: Timer, color: 'text-orange-500', border: 'border-orange-500/20' },
+  ]
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -60,18 +79,30 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 bg-card rounded-xl border border-border p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold">Recent Conversations</h3>
-            {loading ? (
-              <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full animate-pulse">LOADING...</span>
-            ) : (
-              <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">LIVE DATA</span>
-            )}
+            <div className="flex items-center gap-3">
+              {loading ? (
+                <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full animate-pulse">LOADING...</span>
+              ) : (
+                <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">LIVE DATA</span>
+              )}
+              <button 
+                onClick={() => navigate('/conversations')} 
+                className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
+              >
+                View All <ArrowRight className="h-3 w-3" />
+              </button>
+            </div>
           </div>
           <div className="space-y-4">
             {conversations.length === 0 && !loading && (
               <div className="text-center text-muted-foreground p-4">No recent conversations found.</div>
             )}
             {conversations.slice(0, 5).map((conv) => (
-              <div key={conv.id} className="flex items-center justify-between p-4 rounded-lg bg-background/50 border border-border/50 hover:border-primary/50 transition-colors">
+              <div 
+                key={conv.id} 
+                onClick={() => navigate('/conversations')}
+                className="flex items-center justify-between p-4 rounded-lg bg-background/50 border border-border/50 hover:border-primary/50 hover:bg-muted/30 transition-colors cursor-pointer"
+              >
                 <div className="flex items-center gap-4">
                   <div className="h-10 w-10 rounded-full bg-secondary flex items-center justify-center">
                     <Users className="h-5 w-5 text-muted-foreground" />

@@ -71,15 +71,18 @@ TOOLS = [
 SCHEDULING_SYSTEM_PROMPT = """You are {persona_name}, a helpful scheduling assistant for {business_name}.
 Your job is to help the user book an appointment. 
 Today's date is {today}.
+Customer Information:
+- Name: {customer_name}
+- Phone: {customer_phone}
 
 CRITICAL RULES:
-1. Be polite, concise, and professional. Use {language} language.
+1. Be polite, concise, and professional. You MUST respond in the EXACT SAME language and script that the customer used (e.g., if they used Hinglish, respond in Hinglish. If Marathi, respond in Marathi). Detected language: {language}.
 2. {emoji_instruction}
 3. If the user wants to book an appointment but hasn't specified a date, ask them what date works for them.
-4. When they give a date, USE THE `get_availability` TOOL to check the calendar. DO NOT invent available times.
-5. Once you have the available times, list them to the user and ask them to choose one.
-6. Once they choose a time, and you know their name, USE THE `book_appointment` TOOL to book it.
-7. Confirm the booking only after the tool returns success.
+4. When they give a date (or confirm a suggested date like 'tomorrow', 'yes' to a date suggested by the assistant), USE THE `get_availability` TOOL to check the calendar. DO NOT invent available times.
+5. Once you have the available times, if they already requested a specific time (e.g., '1 pm') in the conversation and that time is available, proceed to book it using the `book_appointment` tool. Otherwise, list the available times to the user and ask them to choose one.
+6. When booking, use the customer's name from Customer Information or the conversation history. If unknown, ask for their name.
+7. Confirm the booking only after the tool returns success, and MUST SHARE the `meet_link` provided in the tool response.
 8. If the tool returns failure (e.g., slot already taken), apologize and offer alternative slots using the `get_availability` tool.
 
 Do NOT confirm an appointment without calling the `book_appointment` tool.
@@ -91,11 +94,15 @@ def _build_scheduling_prompt(state: AgentState) -> str:
     emoji_instruction = (
         "You MAY use relevant emojis." if profile.get("ai_use_emoji") else "Do NOT use emojis."
     )
+    customer_name = state.get("contact_name") or "Customer"
+    customer_phone = state.get("contact_wa_id") or "Unknown"
     
     return SCHEDULING_SYSTEM_PROMPT.format(
         persona_name=profile.get("ai_persona_name", "AI Assistant"),
         business_name=profile.get("business_name", "our business"),
         today=datetime.now().strftime("%Y-%m-%d"),
+        customer_name=customer_name,
+        customer_phone=customer_phone,
         language=state.get("language_detected", "en"),
         emoji_instruction=emoji_instruction,
     )

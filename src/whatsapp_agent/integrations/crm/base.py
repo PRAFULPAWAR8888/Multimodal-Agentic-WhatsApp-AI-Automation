@@ -74,6 +74,33 @@ class CRMProvider(ABC):
         pass
 
     @abstractmethod
+    async def update_lead(self, lead_id: str | None = None, **kwargs: Any) -> bool:
+        """
+        Update an existing lead in the CRM.
+
+        Args:
+            lead_id: CRM lead identifier (optional if phone number is provided in kwargs).
+            **kwargs: Lead attributes to update (client_name, name, email, phone, reasons_to_reach_us, etc.)
+
+        Returns:
+            True if update succeeded, False otherwise.
+        """
+        pass
+
+    @abstractmethod
+    async def get_lead(self, lead_id: str) -> dict[str, Any] | None:
+        """
+        Retrieve lead details from CRM by lead ID.
+
+        Args:
+            lead_id: CRM lead identifier.
+
+        Returns:
+            Dictionary containing lead fields, or None if not found.
+        """
+        pass
+
+    @abstractmethod
     async def get_employee_details(self, employee_id: str) -> dict[str, Any] | None:
         """Fetch employee details from CRM/ERP."""
         pass
